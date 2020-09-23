@@ -63,7 +63,26 @@ def is_segwit_activated(version, net):
     segwit_activation_version = getattr(net, 'SEGWIT_ACTIVATION_VERSION', 0)
     return version >= segwit_activation_version and segwit_activation_version > 0
 
-DONATION_SCRIPT = '522102d92234777b63f6dbc0a0382bbcb54e0befb01f6a4b062122fadab044af6c06882103b27bbc5019d3543586482a995e8f57c6ad506a4dafa6bf7cc89533b8dcb2df1b2102911ff87e792ec75b3a30dc115dfd06ec27c93b27034aa8e7cefbee6477e5d03453ae'.decode('hex')
+#Farsider350 MultiSig DGB script
+#DONATION_SCRIPT = '522102d92234777b63f6dbc0a0382bbcb54e0befb01f6a4b062122fadab044af6c06882103b27bbc5019d3543586482a995e8f57c6ad506a4dafa6bf7cc89533b8dcb2df1b2102911ff87e792ec75b3a30dc115dfd06ec27c93b27034aa8e7cefbee6477e5d03453ae'.decode('hex')
+# "DTk7z3o9yHBnbFG9oh1KB6XMWBYHoSF48K",
+# "DJpBr6o9wkxezqsLPGXAXfQy2Dpxm5Fyec",
+# "DTGSPpJDgDh46qooxynHgkAV57iNJeH2NP"
+# "2 02d92234777b63f6dbc0a0382bbcb54e0befb01f6a4b062122fadab044af6c0688 03b27bbc5019d3543586482a995e8f57c6ad506a4dafa6bf7cc89533b8dcb2df1b 02911ff87e792ec75b3a30dc115dfd06ec27c93b27034aa8e7cefbee6477e5d034 3 OP_CHECKMULTISIG",
+
+#Forrest p2pk BTC address (DGB uses same coin prefixes for private keys as BTC, so the key for BTC equal for DGB address uncompressed!!!)
+#DONATION_SCRIPT = '4104ffd03de44a6e11b9917f3a29f9443283d9871c9d743ef30d5eddcd37094b64d1b3d8090496b53256786bf5c82932ec23c3b74d9f05a6f95a8b5529352656664bac'.decode('hex')#BTC
+
+#My address :) P2PK
+#DONATION_SCRIPT = '410457a337b86557f5b15c94544ad267f96a582dc2b91e6873968ff7ba174fda6874af979cd9af41ec2032dfdfd6587be5b14a4355546d541388c3f1555a67d11c2dac'.decode('hex')#DJK
+
+#BRUTANG 144.202.73.168 Multisig DGB script - ilsawa?
+DONATION_SCRIPT = '522102ed2a267bb573c045ef4dbe414095eeefe76ab0c47726078c9b7b1c496fee2e6221023052352f04625282ffd5e5f95a4cef52107146aedb434d6300da1d34946320ea52ae'.decode('hex')
+# "DEuzNgiif29gYe7vNeXF8gDBPydYji6hBc",
+# "DTvN7hB8dXEVLNjvEkCaEm34AXb8LpxmKM"
+# "2 02ed2a267bb573c045ef4dbe414095eeefe76ab0c47726078c9b7b1c496fee2e62 023052352f04625282ffd5e5f95a4cef52107146aedb434d6300da1d34946320ea 2 OP_CHECKMULTISIG",
+
+
 
 class BaseShare(object):
     VERSION = 0
@@ -236,6 +255,8 @@ class BaseShare(object):
             assert base_subsidy is not None
             share_data = dict(share_data, subsidy=base_subsidy + definite_fees)
         
+        #test here TODO 
+
         weights, total_weight, donation_weight = tracker.get_cumulative_weights(previous_share.share_data['previous_share_hash'] if previous_share is not None else None,
             max(0, min(height, net.REAL_CHAIN_LENGTH) - 1),
             65535*net.SPREAD*bitcoin_data.target_to_average_attempts(block_target),
@@ -540,7 +561,7 @@ class WeightsSkipList(forest.TrackerSkipList):
     def get_delta(self, element):
         from p2pool.bitcoin import data as bitcoin_data
         share = self.tracker.items[element]
-        att = bitcoin_data.target_to_average_attempts(share.target)
+        att = bitcoin_data.target_to_average_attempts(share.target) #2**256//(target + 1)
         return 1, {share.new_script: att*(65535-share.share_data['donation'])}, att*65535, att*share.share_data['donation']
     
     def combine_deltas(self, (share_count1, weights1, total_weight1, total_donation_weight1), (share_count2, weights2, total_weight2, total_donation_weight2)):
@@ -721,8 +742,8 @@ def update_min_protocol_version(counts, share):
 
 def get_pool_attempts_per_second(tracker, previous_share_hash, dist, min_work=False, integer=False):
     assert dist >= 2
-    near = tracker.items[previous_share_hash]
-    far = tracker.items[tracker.get_nth_parent_hash(previous_share_hash, dist - 1)]
+    near = tracker.items[previous_share_hash] #last share
+    far = tracker.items[tracker.get_nth_parent_hash(previous_share_hash, dist - 1)] #last 200 shares back
     attempts = tracker.get_delta(near.hash, far.hash).work if not min_work else tracker.get_delta(near.hash, far.hash).min_work
     time = near.timestamp - far.timestamp
     if time <= 0:
@@ -801,8 +822,9 @@ def format_hash(x):
 
 class ShareStore(object):
     def __init__(self, prefix, net, share_cb, verified_hash_cb):
-        self.dirname = os.path.dirname(os.path.abspath(prefix))
-        self.filename = os.path.basename(os.path.abspath(prefix))
+        self.dirname = os.path.dirname(os.path.abspath(prefix)) #Путь к папке с файлами данных шар.
+        self.filename = os.path.basename(os.path.abspath(prefix)) #Название файла данных шар ['shares.']
+        self.archive_dirname = os.path.abspath(self.dirname + '/archive') #Путь к папке-архиву с данными шар.
         self.net = net
 
         start = time.time()
@@ -844,10 +866,13 @@ class ShareStore(object):
     def _add_line(self, line):
         filenames, next = self.get_filenames_and_next()
         if filenames and os.path.getsize(filenames[-1]) < 10e6:
+            # Если последний в списке файл меньше 1.000.000 байт [976,5625‬KB/0.95MB] 
             filename = filenames[-1]
         else:
+            # В противном случае создаем следующий
             filename = next
-        
+
+        #'ab' mode = opens a file for appending in binary format
         with open(filename, 'ab') as f:
             f.write(line + '\n')
         
@@ -856,9 +881,9 @@ class ShareStore(object):
     def add_share(self, share):
         for filename, (share_hashes, verified_hashes) in self.known.iteritems():
             if share.hash in share_hashes:
-                break
+                break #Если такой хэш уже есть, то шара не сохраняется.
         else:
-            filename = self._add_line("%i %s" % (5, share_type.pack(share.as_share()).encode('hex')))
+            filename = self._add_line("%i %s" % (5, share_type.pack(share.as_share()).encode('hex'))) # 5 - share separator in file
             share_hashes, verified_hashes = self.known.setdefault(filename, (set(), set()))
             share_hashes.add(share.hash)
         share_hashes, verified_hashes = self.known_desired.setdefault(filename, (set(), set()))
@@ -869,13 +894,14 @@ class ShareStore(object):
             if share_hash in verified_hashes:
                 break
         else:
-            filename = self._add_line("%i %x" % (2, share_hash))
+            filename = self._add_line("%i %x" % (2, share_hash)) # 2 - verified share separator in file
             share_hashes, verified_hashes = self.known.setdefault(filename, (set(), set()))
             verified_hashes.add(share_hash)
         share_hashes, verified_hashes = self.known_desired.setdefault(filename, (set(), set()))
         verified_hashes.add(share_hash)
     
     def get_filenames_and_next(self):
+        ''' Метод возвращает список доступных файлов и название следующего, если доступные будут заполнены. '''
         suffixes = sorted(int(x[len(self.filename):]) for x in os.listdir(self.dirname) if x.startswith(self.filename) and x[len(self.filename):].isdigit())
         return [os.path.join(self.dirname, self.filename + str(suffix)) for suffix in suffixes], os.path.join(self.dirname, self.filename + (str(suffixes[-1] + 1) if suffixes else str(0)))
     
@@ -890,9 +916,17 @@ class ShareStore(object):
             if share_hash in verified_hashes:
                 verified_hashes.remove(share_hash)
         self.check_remove()
+
+    def check_archive_dirname(self):
+        ''' Проверка на существование папки-архива, если её нет - создает. '''
+        if not os.path.exists(self.archive_dirname):
+            print('Create folder for shares archive.')
+            os.makedirs(self.archive_dirname)
     
     def check_remove(self):
+        ''' Проверка файла. Если share_hashes и verified_hashes - пустые, то файл архивируется. '''
         to_remove = set()
+        self.check_archive_dirname()
         for filename, (share_hashes, verified_hashes) in self.known_desired.iteritems():
             #print filename, len(share_hashes) + len(verified_hashes)
             if not share_hashes and not verified_hashes:
@@ -900,5 +934,7 @@ class ShareStore(object):
         for filename in to_remove:
             self.known.pop(filename)
             self.known_desired.pop(filename)
-            os.remove(filename)
-            print "REMOVED", filename
+            os.rename(filename, os.path.join(self.archive_dirname, 'shares.'+ str(len(os.listdir(self.archive_dirname)))))
+            #os.remove(filename)
+            print "ARCHIVED", filename
+            #print "REMOVED", filename

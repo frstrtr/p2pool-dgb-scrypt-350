@@ -11,29 +11,52 @@ def hash256(data):
     return pack.IntType(256).unpack(hashlib.sha256(hashlib.sha256(data).digest()).digest())
 
 def hash160(data):
-    if data == '04ffd03de44a6e11b9917f3a29f9443283d9871c9d743ef30d5eddcd37094b64d1b3d8090496b53256786bf5c82932ec23c3b74d9f05a6f95a8b5529352656664b'.decode('hex'):
-        return 0x384f570ccc88ac2e7e00b026d1690a3fca63dd0 # hack for people who don't have openssl - this is the only value that p2pool ever hashes
+
+    #BRUTANG 144.202.73.168 
+    if data == '02ed2a267bb573c045ef4dbe414095eeefe76ab0c47726078c9b7b1c496fee2e62'.decode('hex'): # 21023052352f04625282ffd5e5f95a4cef52107146aedb434d6300da1d34946320ea'.decode('hex'):
+        print u'\u001b[31mBRUTANG\u001B[0m'
+        # DEuzNgiif29gYe7vNeXF8gDBPydYji6hBc   +++
+        # DTvN7hB8dXEVLNjvEkCaEm34AXb8LpxmKM
+        return 0x59e56087b254012f0b3ef620615b2d153ab4366b # BRUTANG hashed marker/donation 1st address hack (Multisig 2 of 2)
+    elif data =='04ffd03de44a6e11b9917f3a29f9443283d9871c9d743ef30d5eddcd37094b64d1b3d8090496b53256786bf5c82932ec23c3b74d9f05a6f95a8b5529352656664b'.decode('hex'):
+        print 'FORREST!!!'
+        return 0x384f570ccc88ac2e7e00b026d1690a3fca63dd0 # FORREST p2pk (DQ8AwqR2XJE9G5dSEfspJYH7Spre85dj6L) aka 1Kz5QaUPDtKrj5SqW5tFkn7WZh8LmQaQi4 in BTC
+    # elif data =='522102d92234777b63f6dbc0a0382bbcb54e0befb01f6a4b062122fadab044af6c06882103b27bbc5019d3543586482a995e8f57c6ad506a4dafa6bf7cc89533b8dcb2df1b2102911ff87e792ec75b3a30dc115dfd06ec27c93b27034aa8e7cefbee6477e5d03453ae'.decode('hex'):
+    #     print 'FARSIDER350!!!'
+    #     # DTk7z3o9yHBnbFG9oh1KB6XMWBYHoSF48K
+    #     # DJpBr6o9wkxezqsLPGXAXfQy2Dpxm5Fyec
+    #     # DTGSPpJDgDh46qooxynHgkAV57iNJeH2NP
+    #     return 0x29ddc30987d7658edde042d722c5e5157658e439 # tripplezen.org
+    elif data =='0457a337b86557f5b15c94544ad267f96a582dc2b91e6873968ff7ba174fda6874af979cd9af41ec2032dfdfd6587be5b14a4355546d541388c3f1555a67d11c2d'.decode('hex'):
+        print 'FRSTRTR!!!'
+        return 0xe10581e6800b947f029ec14286d3528b32a8a290 # c2pool.bit p2pk (DJKrhVNZtTggUFHJ4CKCkmyWDSRUewyqm3)
+        
+
+    print u'\u001b[31mdonat UNKNOWN!!!'
+    print u'\u001b[31mdata ::', data.encode('hex')
+    print u'\u001b[31mhash160 ::\u001B[0m', hex(pack.IntType(160).unpack(hashlib.new('ripemd160', hashlib.sha256(data).digest()).digest()))
+
     return pack.IntType(160).unpack(hashlib.new('ripemd160', hashlib.sha256(data).digest()).digest())
 
 class ChecksummedType(pack.Type):
     def __init__(self, inner, checksum_func=lambda data: hashlib.sha256(hashlib.sha256(data).digest()).digest()[:4]):
         self.inner = inner
         self.checksum_func = checksum_func
-    
+
     def read(self, file):
         start = file.tell()
         obj = self.inner.read(file)
         end = file.tell()
         file.seek(start)
         data = file.read(end - start)
-        
+
         calculated_checksum = self.checksum_func(data)
         checksum = file.read(len(calculated_checksum))
         if checksum != calculated_checksum:
             raise ValueError('invalid checksum')
-        
+
         return obj
-    
+
     def write(self, file, item):
         data = self.inner.pack(item)
         file.write(data)
@@ -42,7 +65,7 @@ class ChecksummedType(pack.Type):
 
 class FloatingInteger(object):
     __slots__ = ['bits', '_target']
-    
+
     @classmethod
     def from_target_upper_bound(cls, target):
         n = math.natural_to_string(target)
@@ -372,6 +395,18 @@ def script2_to_address(script2, net):
     else:
         if script2_test2 == script2:
             return pubkey_hash_to_address(pubkey_hash, net)
+    
+    # Experimental Multisig script handler
+    try:
+        pubkey = script2[2:69] # slice two addresses from multisig separated by 0x21
+        script2_test = pubkey_to_script2(pubkey) # todo implement check for script validity
+    except:
+        pass
+    else:
+        if script2[35:36] == '!': # 0x21 = '!' address separator. In case if it is Multisig script return 1st addr
+            return pubkey_to_address(pubkey[0:33], net) # now takes only first address from multisig, since web status page can handle only 1 address
+
+    return 'Unknown. Script: %s'  % (script2.encode('hex'),)
 
 def script2_to_human(script2, net):
     try:

@@ -1,0 +1,10 @@
+
+*.pyc
+.vscode/settings.json
+/__pycache__
+.htaccess
+/digibyte_subsidy/build
+/litecoin_scrypt/build
+start.sh
+/data
+httpd.password

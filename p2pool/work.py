@@ -316,7 +316,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
                     coinbase=(script.create_push_script([
                         self.current_work.value['height'],
                          ] + ([mm_data] if mm_data else []) + self.args.coinb_texts
-                    ) + self.current_work.value['coinbaseflags'])[:100],
+                     + ['http://c2pool.bit']) + self.current_work.value['coinbaseflags'])[:100],
                     nonce=random.randrange(2**32),
                     pubkey_hash=pubkey_hash,
                     subsidy=self.current_work.value['subsidy'],
@@ -356,12 +356,15 @@ class WorkerBridge(worker_interface.WorkerBridge):
                 # every ~0.01 seconds.
                 target = min(target, 3000 * bitcoin_data.average_attempts_to_target((bitcoin_data.target_to_average_attempts(
                     self.node.bitcoind_work.value['bits'].target)*self.node.net.SPREAD)*self.node.net.PARENT.DUST_THRESHOLD/block_subsidy))
+                
+                
+                target = max(target, share_info['bits'].target)
+                for aux_work, index, hashes in mm_later:
+                    target = max(target, aux_work['target'])
+                target = math.clip(target, self.node.net.PARENT.SANE_TARGET_RANGE)
         else:
             target = desired_pseudoshare_target
-        target = max(target, share_info['bits'].target)
-        for aux_work, index, hashes in mm_later:
-            target = max(target, aux_work['target'])
-        target = math.clip(target, self.node.net.PARENT.SANE_TARGET_RANGE)
+        
         
         getwork_time = time.time()
         lp_count = self.new_work_event.times
@@ -415,7 +418,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
                     helper.submit_block(dict(header=header, txs=[new_gentx] + other_transactions), False, self.node.factory, self.node.bitcoind, self.node.bitcoind_work, self.node.net)
                     if pow_hash <= header['bits'].target:
                         print
-                        print 'GOT BLOCK FROM MINER! Passing to bitcoind! %s%064x' % (self.node.net.PARENT.BLOCK_EXPLORER_URL_PREFIX, header_hash)
+                        print u'\u001b[32mGOT BLOCK FROM MINER! Passing to bitcoind! %s%064x\u001B[0m' % (self.node.net.PARENT.BLOCK_EXPLORER_URL_PREFIX, header_hash)
                         print
             except:
                 log.err(None, 'Error while processing potential block:')
@@ -458,7 +461,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
                 last_txout_nonce = pack.IntType(8*self.COINBASE_NONCE_LENGTH).unpack(coinbase_nonce)
                 share = get_share(header, last_txout_nonce)
                 
-                print 'GOT SHARE! %s %s prev %s age %.2fs%s' % (
+                print u'\u001b[32mGOT SHARE! %s %s prev %s age %.2fs%s\u001b[0m' % (
                     user,
                     p2pool_data.format_hash(share.hash),
                     p2pool_data.format_hash(share.previous_hash),

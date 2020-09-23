@@ -22,6 +22,8 @@ class P2PNode(p2p.Node):
         **kwargs)
     
     def handle_shares(self, shares, peer):
+        ''' Получение шар '''
+                
         if len(shares) > 5:
             print 'Processing %i shares from %s...' % (len(shares), '%s:%i' % peer.addr if peer is not None else None)
         
@@ -269,7 +271,7 @@ class Node(object):
                 return
             helper.submit_block(block, True, self.factory, self.bitcoind, self.bitcoind_work, self.net)
             print
-            print 'GOT BLOCK FROM PEER! Passing to bitcoind! %s bitcoin: %s%064x' % (p2pool_data.format_hash(share.hash), self.net.PARENT.BLOCK_EXPLORER_URL_PREFIX, share.header_hash)
+            print u'\u001b[32mGOT BLOCK FROM PEER! Passing to bitcoind! %s bitcoin: %s%064x\u001B[0m' % (p2pool_data.format_hash(share.hash), self.net.PARENT.BLOCK_EXPLORER_URL_PREFIX, share.header_hash)
             print
         
         def forget_old_txs():
