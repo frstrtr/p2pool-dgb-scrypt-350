@@ -2,6 +2,9 @@
 
 //#include "scrypt.h"
 
+
+void scrypt_1024_1_1_256(const char* input, char* output);
+
 static PyObject *scrypt_getpowhash(PyObject *self, PyObject *args)
 {
     char *output;
