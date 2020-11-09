@@ -88,6 +88,13 @@ DONATION_SCRIPT = '5221038ab82f3a4f569c4571c483d56729e83399795badb32821cab64d04e
 # "DQ8AwqR2XJE9G5dSEfspJYH7Spre85dj6L"
 # "DJKrhVNZtTggUFHJ4CKCkmyWDSRUewyqm3"
 
+def donation_script_to_address(net):
+    try:
+        return bitcoin_data.script2_to_address(
+                DONATION_SCRIPT, net.PARENT.ADDRESS_VERSION, -1, net.PARENT)
+    except ValueError:
+        return bitcoin_data.script2_to_address(
+                DONATION_SCRIPT, net.PARENT.ADDRESS_P2SH_VERSION, -1, net.PARENT)
 
 class BaseShare(object):
     VERSION = 0
@@ -269,10 +276,32 @@ class BaseShare(object):
         assert total_weight == sum(weights.itervalues()) + donation_weight, (total_weight, sum(weights.itervalues()) + donation_weight)
         
         amounts = dict((script, share_data['subsidy']*(199*weight)//(200*total_weight)) for script, weight in weights.iteritems()) # 99.5% goes according to weights prior to this share
+        """
         this_script = bitcoin_data.pubkey_hash_to_script2(share_data['pubkey_hash'])
         amounts[this_script] = amounts.get(this_script, 0) + share_data['subsidy']//200 # 0.5% goes to block finder
         amounts[DONATION_SCRIPT] = amounts.get(DONATION_SCRIPT, 0) + share_data['subsidy'] - sum(amounts.itervalues()) # all that's left over is the donation weight and some extra satoshis due to rounding
+        """
         
+        if 'address' not in share_data:
+            this_address = bitcoin_data.pubkey_hash_to_address(
+                    share_data['pubkey_hash'], net.PARENT.ADDRESS_VERSION,
+                    -1, net.PARENT)
+        else:
+            this_address = share_data['address']
+        donation_address = donation_script_to_address(net)
+        # 0.5% goes to block finder
+        amounts[this_address] = amounts.get(this_address, 0) \
+                                + share_data['subsidy']//200
+        # all that's left over is the donation weight and some extra
+        # satoshis due to rounding
+        amounts[donation_address] = amounts.get(donation_address, 0) \
+                                    + share_data['subsidy'] \
+                                    - sum(amounts.itervalues())
+        if cls.VERSION < 34 and 'pubkey_hash' not in share_data:
+            share_data['pubkey_hash'], _, _ = bitcoin_data.address_to_pubkey_hash(
+                    this_address, net.PARENT)
+            del(share_data['address'])
+
         if sum(amounts.itervalues()) != share_data['subsidy'] or any(x < 0 for x in amounts.itervalues()):
             raise ValueError()
         
@@ -385,11 +414,13 @@ class BaseShare(object):
         self.merkle_link = contents['merkle_link']
 
         # save some memory if we can
-        txrefs = self.share_info['transaction_hash_refs']
-        if txrefs and max(txrefs) < 2**16:
-            self.share_info['transaction_hash_refs'] = array.array('H', txrefs)
-        elif txrefs and max(txrefs) < 2**32: # in case we see blocks with more than 65536 tx in the future
-            self.share_info['transaction_hash_refs'] = array.array('L', txrefs)
+        # save some memory if we can
+        if self.VERSION < 34:
+            txrefs = self.share_info['transaction_hash_refs']
+            if txrefs and max(txrefs) < 2**16:
+                self.share_info['transaction_hash_refs'] = array.array('H', txrefs)
+            elif txrefs and max(txrefs) < 2**32: # in case we see blocks with more than 65536 tx in the future
+                self.share_info['transaction_hash_refs'] = array.array('L', txrefs)
         
         segwit_activated = is_segwit_activated(self.VERSION, net)
         
@@ -406,7 +437,20 @@ class BaseShare(object):
         self.target = self.share_info['bits'].target
         self.timestamp = self.share_info['timestamp']
         self.previous_hash = self.share_data['previous_share_hash']
-        self.new_script = bitcoin_data.pubkey_hash_to_script2(self.share_data['pubkey_hash'])
+
+        # self.new_script = bitcoin_data.pubkey_hash_to_script2(self.share_data['pubkey_hash'])
+        if self.VERSION >= 34:
+            self.new_script = bitcoin_data.address_to_script2(
+                    self.share_data['address'], net.PARENT)
+            self.address = self.share_data['address']
+        else:
+            self.new_script = bitcoin_data.pubkey_hash_to_script2(
+                    self.share_data['pubkey_hash'],
+                    net.PARENT.ADDRESS_VERSION, -1, net.PARENT)
+            self.address = bitcoin_data.pubkey_hash_to_address(
+                    self.share_data['pubkey_hash'],
+                    net.PARENT.ADDRESS_VERSION, -1, net.PARENT)
+
         self.desired_version = self.share_data['desired_version']
         self.absheight = self.share_info['absheight']
         self.abswork = self.share_info['abswork']

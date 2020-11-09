@@ -240,8 +240,10 @@ def get_web_root(wb, datadir_path, bitcoind_getnetworkinfo_var, stop_event=varia
     web_root.putChild('user_stales', WebInterface(lambda: dict((bitcoin_data.pubkey_hash_to_address(ph, node.net.PARENT), prop) for ph, prop in
                                                                p2pool_data.get_user_stale_props(node.tracker, node.best_share_var.value, node.tracker.get_height(node.best_share_var.value)).iteritems())))
     web_root.putChild('fee', WebInterface(lambda: wb.worker_fee))
-    web_root.putChild('current_payouts', WebInterface(lambda: dict((bitcoin_data.script2_to_address(
-        script, node.net.PARENT), value/1e8) for script, value in node.get_current_txouts().iteritems())))
+    #todo Check p2multisig script
+    # web_root.putChild('current_payouts', WebInterface(lambda: dict((bitcoin_data.script2_to_address(script, node.net.PARENT), value/1e8) for script, value in node.get_current_txouts().iteritems())))
+    web_root.putChild('current_payouts', WebInterface(lambda: dict((address, value/1e8) for address, value in node.get_current_txouts().iteritems())))
+    
     web_root.putChild('patron_sendmany', WebInterface(
         get_patron_sendmany, 'text/plain'))
     web_root.putChild('global_stats', WebInterface(get_global_stats))
@@ -575,8 +577,10 @@ def get_web_root(wb, datadir_path, bitcoind_getnetworkinfo_var, stop_event=varia
                 bitcoin_data.pubkey_hash_to_script2(add), 0)*1e-8
         hd.datastreams['current_payout'].add_datum(t, my_current_payouts)
         miner_hash_rates, miner_dead_hash_rates = wb.get_local_rates()
-        current_txouts_by_address = dict((bitcoin_data.script2_to_address(
-            script, node.net.PARENT), amount) for script, amount in current_txouts.iteritems())
+        
+        #human address
+        current_txouts_by_address = current_txouts# dict((bitcoin_data.script2_to_address(script, node.net.PARENT), amount) for script, amount in current_txouts.iteritems())
+
         hd.datastreams['current_payouts'].add_datum(t, dict(
             (user, current_txouts_by_address[user]*1e-8) for user in miner_hash_rates if user in current_txouts_by_address))
 

@@ -10,6 +10,8 @@ from p2pool.util import pack
 P2P_PREFIX = 'fac3b6da'.decode('hex')
 P2P_PORT = 12026
 ADDRESS_VERSION = 30
+ADDRESS_P2SH_VERSION = 5
+HUMAN_READABLE_PART = 'dgb1'
 RPC_PORT = 14024
 #RPC_CHECK is failing after odocrypt fork. Need adjustments here.
 RPC_CHECK = defer.inlineCallbacks(lambda bitcoind: defer.returnValue(
@@ -18,7 +20,7 @@ RPC_CHECK = defer.inlineCallbacks(lambda bitcoind: defer.returnValue(
         ))
 SUBSIDY_FUNC = lambda height: __import__('digibyte_subsidy').GetBlockBaseValue(height)
 POW_FUNC = lambda data: pack.IntType(256).unpack(__import__('ltc_scrypt').getPoWHash(data))
-BLOCK_PERIOD = 150
+BLOCK_PERIOD = 150 # seconds
 SYMBOL = 'DGB'
 CONF_FILE_FUNC = lambda: os.path.join(os.path.join(os.environ['APPDATA'], 'digibyte') if platform.system() == 'Windows' else os.path.expanduser('~/Library/Application Support/digibyte/') if platform.system() == 'Darwin' else os.path.expanduser('~/.digibyte'), 'digibyte.conf')
 BLOCK_EXPLORER_URL_PREFIX = 'https://chainz.cryptoid.info/dgb/block.dws?'
