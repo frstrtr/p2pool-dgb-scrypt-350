@@ -8,3 +8,4 @@
 start.sh
 /data
 httpd.password
+/.pypyenv
