@@ -6,15 +6,31 @@ import warnings
 import binascii
 
 import p2pool
-from p2pool.util import math, pack
+from p2pool.util import math, pack, cash_addr
+import struct
+
+mask = (1<<64) - 1
 
 def hash256(data):
     return pack.IntType(256).unpack(hashlib.sha256(hashlib.sha256(data).digest()).digest())
 
+def pack256(data):
+    if data is None:
+        data = 0
+    return struct.pack("<QQQQ", data & mask, data>>64 & mask, data>>128 & mask,
+                        data>>192 & mask)
+
+def unpack256(data):
+    raw = struct.unpack("<QQQQ", data)
+    return (raw[3]<<192) + (raw[2]<<128) + (raw[1]<<64) + raw[0]
+
+def hash256d(data):
+    return hashlib.sha256(hashlib.sha256(data).digest()).digest()
+
 def hash160(data):
 
     #BRUTANG 144.202.73.168 
-    if data == '02ed2a267bb573c045ef4dbe414095eeefe76ab0c47726078c9b7b1c496fee2e62'.decode('hex'): # 21023052352f04625282ffd5e5f95a4cef52107146aedb434d6300da1d34946320ea'.decode('hex'):
+    if data == '522102ed2a267bb573c045ef4dbe414095eeefe76ab0c47726078c9b7b1c496fee2e6221023052352f04625282ffd5e5f95a4cef52107146aedb434d6300da1d34946320ea'.decode('hex'):
         print u'\u001b[31mBRUTANG\u001B[0m'
         # DEuzNgiif29gYe7vNeXF8gDBPydYji6hBc   +++
         # DTvN7hB8dXEVLNjvEkCaEm34AXb8LpxmKM
@@ -31,7 +47,11 @@ def hash160(data):
     elif data =='0457a337b86557f5b15c94544ad267f96a582dc2b91e6873968ff7ba174fda6874af979cd9af41ec2032dfdfd6587be5b14a4355546d541388c3f1555a67d11c2d'.decode('hex'):
         print 'FRSTRTR!!!'
         return 0xe10581e6800b947f029ec14286d3528b32a8a290 # c2pool.bit p2pk (DJKrhVNZtTggUFHJ4CKCkmyWDSRUewyqm3)
-        
+    
+    elif data ==  '5221038ab82f3a4f569c4571c483d56729e83399795badb32821cab64d04e7b5d106864104ffd03de44a6e11b9917f3a29f9443283d9871c9d743ef30d5eddcd37094b64d1b3d8090496b53256786bf5c82932ec23c3b74d9f05a6f95a8b5529352656664b410457a337b86557f5b15c94544ad267f96a582dc2b91e6873968ff7ba174fda6874af979cd9af41ec2032dfdfd6587be5b14a4355546d541388c3f1555a67d11c2d53ae'.decode('hex'):
+        # print 'Frstrtr Lawzt Forrest Frstrtr'
+        return 0x00e7b5e08cce10144dd100ee248572b3492aa77a # p2pool Lawzt Forrest Frstrtr
+
 
     print u'\u001b[31mdonat UNKNOWN!!!'
     print u'\u001b[31mdata ::', data.encode('hex')
@@ -143,6 +163,16 @@ tx_id_type = pack.ComposedType([
     ('tx_outs', pack.ListType(tx_out_type)),
     ('lock_time', pack.IntType(32))
 ])
+
+# Merge pull request #42 from jtoomim/stratum-autodiff
+def get_stripped_size(tx):
+    if not 'stripped_size' in tx:
+        tx['stripped_size'] = tx_id_type.packed_size(tx)
+    return tx['stripped_size']
+def get_size(tx):
+    if not 'size' in tx:
+        tx['size'] = tx_id_type.packed_size(tx)
+    return tx['size']
 
 class TransactionType(pack.Type):
     _int_type = pack.IntType(32)
@@ -259,6 +289,44 @@ merkle_record_type = pack.ComposedType([
     ('right', pack.IntType(256)),
 ])
 
+class MerkleNode(object):
+    """Class for building a merkle tree."""
+
+    __slots__ = ('hash', 'parent', 'left', 'right')
+
+    def __init__(self, hash, left=None, right=None, parent=None):
+        if hash is None:
+            self.hash = '0'
+        else:
+            self.hash = hash
+        self.left = left
+        self.right = right
+        self.parent = parent
+
+    def get_sibling(self):
+        """Get the hash's sibling.
+        Args:
+            None
+        Returns:
+            The sibling MerkleNode of hash.
+        """
+        if not self.parent:
+            raise ValueError("There is no sibling of this node.")
+        if self == self.parent.left:
+            return self.parent.right
+        return self.parent.left
+
+    def __hash__(self):
+        return self.hash
+
+    def __str__(self, level=0):
+        ret = "%s%s\n" % ('\t'*level, self.hash)
+        if self.left:
+            ret += self.left.__str__(level=level+1)
+        if self.right:
+            ret += self.right.__str__(level=level+1)
+        return ret
+
 def merkle_hash(hashes):
     if not hashes:
         return 0
@@ -268,32 +336,43 @@ def merkle_hash(hashes):
             for left, right in zip(hash_list[::2], hash_list[1::2] + [hash_list[::2][-1]])]
     return hash_list[0]
 
+def build_merkle_tree(nodes):
+    """Build a merkle tree from a list of hashes
+    Args:
+        nodes: A list of merkle nodes already part of the tree.
+    Returns:
+        The root merkle node.
+    """
+    if len(nodes) < 1:
+        raise ValueError("No nodes in list to build a merkle tree with.")
+    if len(nodes) == 1:
+        return nodes[0]
+    new_nodes = []
+    for i in range(0, len(nodes), 2):
+        try:
+            right = nodes[i+1]
+        except IndexError:
+            right = nodes[i]
+        new_node = MerkleNode(hash=hash256d(nodes[i].hash + right.hash),
+                              left=nodes[i], right=right)
+        nodes[i].parent = new_node
+        try:
+            nodes[i+1].parent = new_node
+        except IndexError:
+            pass
+        new_nodes.append(new_node)
+    return build_merkle_tree(new_nodes)
+
 def calculate_merkle_link(hashes, index):
-    # XXX optimize this
-    
-    hash_list = [(lambda _h=h: _h, i == index, []) for i, h in enumerate(hashes)]
-    
-    while len(hash_list) > 1:
-        hash_list = [
-            (
-                lambda _left=left, _right=right: hash256(merkle_record_type.pack(dict(left=_left(), right=_right()))),
-                left_f or right_f,
-                (left_l if left_f else right_l) + [dict(side=1, hash=right) if left_f else dict(side=0, hash=left)],
-            )
-            for (left, left_f, left_l), (right, right_f, right_l) in
-                zip(hash_list[::2], hash_list[1::2] + [hash_list[::2][-1]])
-        ]
-    
-    res = [x['hash']() for x in hash_list[0][2]]
-    
-    assert hash_list[0][1]
-    if p2pool.DEBUG:
-        new_hashes = [random.randrange(2**256) if x is None else x
-            for x in hashes]
-        assert check_merkle_link(new_hashes[index], dict(branch=res, index=index)) == merkle_hash(new_hashes)
-    assert index == sum(k*2**i for i, k in enumerate([1-x['side'] for x in hash_list[0][2]]))
-    
-    return dict(branch=res, index=index)
+    assert index < len(hashes)
+    merkle_nodes = [MerkleNode(pack256(x)) for x in hashes]
+    merkle_tree = build_merkle_tree(merkle_nodes)
+    merkle_branch = []
+    index_node = merkle_nodes[index]
+    while index_node.parent:
+        merkle_branch.append(unpack256(index_node.get_sibling().hash))
+        index_node = index_node.parent
+    return {'index': index, 'branch': merkle_branch}
 
 def check_merkle_link(tip_hash, link):
     if link['index'] >= 2**len(link['branch']):
@@ -526,7 +605,7 @@ def script2_to_address(script2, addr_ver, bech32_ver, net):
     except AddrError:
         pass
     for func in [script2_to_pubkey_hash_address, script2_to_bech32_address,
-                 script2_to_p2sh_address, script2_to_cashaddress]:
+                 script2_to_p2sh_address, script2_to_cashaddress, script2_to_p2ms_p2sh_address]:
         try:
             return func(script2, addr_ver, bech32_ver, net)
         except AddrError:
@@ -542,6 +621,23 @@ def script2_to_pubkey_address(script2, net):
     except:
         raise AddrError
     return pubkey_to_address(pubkey, net)
+
+def script2_to_p2ms_p2sh_address(script2, addr_ver, bech32_ver, net): # p2ms - p2sh
+    try:
+        # split p2ms to pubKeys
+        # evaluate each key with 
+        # assert len(script2) > 75
+        sc2 = script2.encode('hex') # to hex str
+        if sc2[2:6] == '2102' or sc2[2:6] == '2103' or sc2[2:6] == '4104': # 0x21 or 0x41 check for pubKey length
+            P2SH_VERSION_BYTE = '3f' # Digibyte - S prefix
+            script_hash160 = hash160(script2)
+            prefix_script_hash160 = (P2SH_VERSION_BYTE+hex(script_hash160)[2:-1].rjust(40, '0')).decode('hex') # eliminate 0x at the beginning and L in the end
+            checksum = hashlib.sha256(hashlib.sha256(prefix_script_hash160).digest()).digest()[:4]
+            return base58_encode(prefix_script_hash160 + checksum)
+        else:
+            raise ValueError
+    except:
+        raise AddrError
 
 def script2_to_pubkey_hash_address(script2, addr_ver, bech32_ver, net):
     # TODO: Check for BCH and BSV length, could be longer than 20 bytes
@@ -611,3 +707,6 @@ def script2_to_human(script2, net):
             return 'Address. Address: %s' % (pubkey_hash_to_address(pubkey_hash, net),)
     
     return 'Unknown. Script: %s'  % (script2.encode('hex'),)
+
+def is_segwit_script(script):
+    return script.startswith('\x00\x14') or script.startswith('\xa9\x14')

@@ -129,6 +129,7 @@
             fill('/web/verified_tails', '#verified_tails');
             fill('/web/tails', '#tails');
             fill('/web/my_share_hashes', '#my_share_hashes');
+            fill('../web/my_share_hashes50', '#my_share_hashes');
         </script>
         <script>
                 function target_to_difficulty(target) { return (0xffff0000 * Math.pow(2, 256 - 64) + 1) / (target + 1); }
@@ -208,7 +209,7 @@
         </div>
 
 
-        <h2>Blocks found in the last day:</h2>
+        <h2>Blocks found recently:</h2>
         <p>Note that blocks may have been orphaned from the P2Pool chain and so not be here.</p>
         <table border="1" id="blocks">
             <tr><th>time</th><th>number</th><th>hash/explorer link</th><th>share</th></tr>

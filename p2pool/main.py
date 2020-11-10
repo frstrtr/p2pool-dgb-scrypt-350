@@ -78,7 +78,7 @@ class keypool():
         self.payouttotal = 0.0
         for i in range(len(pubkeys.keys)):
             self.payouttotal += node.get_current_txouts().get(
-                bitcoin_data.pubkey_hash_to_script2(pubkeys.keys[i]), 0)*1e-8
+                    pubkeys.keys[i]['address'], 0) * 1e-8
         return self.payouttotal
 
     def getpaytotal(self):
@@ -97,11 +97,9 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
         @defer.inlineCallbacks
         def connect_p2p():
             # connect to bitcoind over bitcoin-p2p
-            print '''Testing bitcoind P2P connection to '%s:%s'...''' % (
-                args.bitcoind_address, args.bitcoind_p2p_port)
+            print '''Testing bitcoind P2P connection to '%s:%s'...''' % (args.bitcoind_address, args.bitcoind_p2p_port)
             factory = bitcoin_p2p.ClientFactory(net.PARENT)
-            reactor.connectTCP(args.bitcoind_address,
-                               args.bitcoind_p2p_port, factory)
+            reactor.connectTCP(args.bitcoind_address, args.bitcoind_p2p_port, factory)
 
             def long():
                 print '''    ...taking a while. Common reasons for this include all of bitcoind's connection slots being used...'''
@@ -212,7 +210,6 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
             # my_pubkey_hash = bitcoin_data.address_to_pubkey_hash(address, net.PARENT)
 
             my_address = address
-            # print '    ...success! Payout address:', bitcoin_data.pubkey_hash_to_address(my_pubkey_hash, net.PARENT)
             print(u'\u001b[32m    ...success! Payout address: %s\u001b[0m' % my_address)
             print
             # pubkeys.addkey(my_pubkey_hash)
@@ -244,8 +241,7 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
             my_address = pubkeys.keys[0]['address']
 
             for i in range(len(pubkeys.keys)):
-                print '    ...payout %d: %s' % (
-                    i, bitcoin_data.pubkey_hash_to_address(pubkeys.keys[i], net.PARENT),)
+                print('    ...payout %d: %s' % (i, pubkeys[i]['address']))
 
         print "Loading shares..."
         shares = {}
@@ -374,7 +370,7 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
         # wb = work.WorkerBridge(node, my_pubkey_hash, args.donation_percentage, merged_urls, args.worker_fee, args, pubkeys, bitcoind)
         wb = work.WorkerBridge(node, my_address, args.donation_percentage,
                                merged_urls, args.worker_fee, args, pubkeys,
-                               bitcoind)#, args.share_rate)
+                               bitcoind, args.share_rate)
 
         # Web server start
         web_root = web.get_web_root(
@@ -471,8 +467,15 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
                             return
                         if share.pow_hash <= share.header['bits'].target and abs(share.timestamp - time.time()) < 10*60:
                             yield deferral.sleep(random.expovariate(1/60))
-                            message = '\x02%s BLOCK FOUND by %s! %s%064x' % (net.NAME.upper(), bitcoin_data.script2_to_address(
-                                share.new_script, net.PARENT), net.PARENT.BLOCK_EXPLORER_URL_PREFIX, share.header_hash)
+                            message = '\x02%s BLOCK FOUND by %s! %s%064x' % (
+                                    net.NAME.upper(),
+                                    bitcoin_data.script2_to_address(
+                                        share.new_script, net.ADDRESS_VERSION,
+                                        -1, net.PARENT) if
+                                            share.VERSION < 34 else
+                                                share.address,
+                                    net.PARENT.BLOCK_EXPLORER_URL_PREFIX,
+                                    share.header_hash)
                             if all('%x' % (share.header_hash,) not in old_message for old_message in self.recent_messages):
                                 self.say(self.channel, message)
                                 self._remember_message(message)
@@ -546,7 +549,7 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
                         paytot = 0.0
                         for i in range(len(pubkeys.keys)):
                             curtot = node.get_current_txouts().get(
-                                bitcoin_data.pubkey_hash_to_script2(pubkeys.keys[i]), 0)
+                                    pubkeys.keys[i]['address'], 0)
                             paytot += curtot*1e-8
                             paystr += "(%.4f)" % (curtot*1e-8,)
                         paystr += "=%.4f" % (paytot,)
@@ -684,6 +687,9 @@ def run():
     worker_group.add_argument('-f', '--fee', metavar='FEE_PERCENTAGE',
                               help='''charge workers mining to their own bitcoin address (by setting their miner's username to a bitcoin address) this percentage fee to mine on your p2pool instance. Amount displayed at http://127.0.0.1:WORKER_PORT/fee (default: 0)''',
                               type=float, action='store', default=0, dest='worker_fee')
+    worker_group.add_argument('-s', '--share-rate', metavar='SECONDS_PER_SHARE',
+        help='Auto-adjust mining difficulty on each connection to target this many seconds per pseudoshare (default: %3.0f)' % 3.,
+        type=float, action='store', default=3., dest='share_rate')                              
 
     bitcoind_group = parser.add_argument_group('bitcoind interface')
     bitcoind_group.add_argument('--bitcoind-config-path', metavar='BITCOIND_CONFIG_PATH',
@@ -720,6 +726,8 @@ def run():
     p2pool.BENCH = args.bench
 
     net_name = args.net_name + ('_testnet' if args.testnet else '')
+    # debug digibyte
+    net_name = 'digibyte' # 2b or not 2b?
     net = networks.nets[net_name]
 
     datadir_path = os.path.join((os.path.join(os.path.dirname(
@@ -790,8 +798,8 @@ def run():
 
     if args.address is not None and args.address != 'dynamic':
         try:
-            args.pubkey_hash = bitcoin_data.address_to_pubkey_hash(
-                args.address, net.PARENT)
+            _ = bitcoin_data.address_to_pubkey_hash(args.address, net.PARENT)
+            args.pubkey_hash = True
         except Exception, e:
             parser.error('error parsing address: ' + repr(e))
     else:

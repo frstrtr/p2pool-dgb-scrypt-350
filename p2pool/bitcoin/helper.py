@@ -24,7 +24,10 @@ def check(bitcoind, net, args):
     
     try:
         blockchaininfo = yield bitcoind.rpc_getblockchaininfo()
-        softforks_supported = set(item['id'] for item in blockchaininfo.get('softforks', []))
+        try:
+            softforks_supported = set(item['id'] for item in blockchaininfo.get('softforks', [])) # not working with 0.19.0.1
+        except TypeError:
+            softforks_supported = set(item for item in blockchaininfo.get('softforks', [])) # fix for https://github.com/jtoomim/p2pool/issues/38
         try:
             softforks_supported |= set(item['id'] for item in blockchaininfo.get('bip9_softforks', []))
         except TypeError: # https://github.com/bitcoin/bitcoin/pull/7863
@@ -45,7 +48,7 @@ def check(bitcoind, net, args):
 
 @deferral.retry('Error getting work from bitcoind:', 3)
 @defer.inlineCallbacks
-def getwork(bitcoind, use_getblocktemplate=False, txidcache={}, known_txs={}):
+def getwork(bitcoind, use_getblocktemplate=False, txidcache={}, feecache={}, feefifo=[], known_txs={}):
     def go():
         if use_getblocktemplate:
             return bitcoind.rpc_getblocktemplate(dict(mode='template', rules=['segwit']))
@@ -76,6 +79,7 @@ def getwork(bitcoind, use_getblocktemplate=False, txidcache={}, known_txs={}):
     knownhits = 0
     knownmisses = 0
     for x in work['transactions']:
+        fee = x['fee']
         x = x['data'] if isinstance(x, dict) else x
         packed = None
         if x in txidcache:
@@ -97,11 +101,20 @@ def getwork(bitcoind, use_getblocktemplate=False, txidcache={}, known_txs={}):
                 packed = x.decode('hex')
             unpacked = bitcoin_data.tx_type.unpack(packed)
         unpacked_transactions.append(unpacked)
+        # The only place where we can get information on transaction fees is in GBT results, so we need to store those
+        # for a while so we can spot shares that miscalculate the block reward
+        if not txid in feecache:
+            feecache[txid] = fee
+            feefifo.append(txid)
 
     if time.time() - txidcache['start'] > 30*60.:
         keepers = {(x['data'] if isinstance(x, dict) else x):txid for x, txid in zip(work['transactions'], txhashes)}
         txidcache.clear()
         txidcache.update(keepers)
+        # limit the fee cache to 100,000 entries, which should be about 10-20 MB
+        fum = 100000
+        while len(feefifo) > fum:
+            del feecache[feefifo.pop(0)]
 
     if 'height' not in work:
         work['height'] = (yield bitcoind.rpc_getblock(work['previousblockhash']))['height'] + 1
@@ -152,9 +165,10 @@ def submit_block_rpc(block, ignore_failure, bitcoind, bitcoind_work, net):
     if (not success and success_expected and not ignore_failure) or (success and not success_expected):
         print >>sys.stderr, 'Block submittal result: %s (%r) Expected: %s' % (success, result, success_expected)
 
-def submit_block(block, ignore_failure, factory, bitcoind, bitcoind_work, net):
-    submit_block_p2p(block, factory, net)
-    submit_block_rpc(block, ignore_failure, bitcoind, bitcoind_work, net)
+def submit_block(block, ignore_failure, node):
+    submit_block_p2p(block, node.factory, node.net)
+    submit_block_rpc(block, ignore_failure, node.bitcoind, node.bitcoind_work,
+                     node.net)
 
 @defer.inlineCallbacks
 def check_block_header(bitcoind, block_hash):

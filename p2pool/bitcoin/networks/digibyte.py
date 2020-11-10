@@ -10,7 +10,8 @@ from p2pool.util import pack
 P2P_PREFIX = 'fac3b6da'.decode('hex')
 P2P_PORT = 12026
 ADDRESS_VERSION = 30
-ADDRESS_P2SH_VERSION = 5
+ADDRESS_P2SH_VERSION = 63 # 05 for bitcoin
+# ADDRESS_P2MS_VERSION = 63 # 0x3f using p2sh since there is no address for p2ms
 HUMAN_READABLE_PART = 'dgb1'
 RPC_PORT = 14024
 #RPC_CHECK is failing after odocrypt fork. Need adjustments here.

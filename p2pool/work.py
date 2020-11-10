@@ -20,7 +20,7 @@ print_throttle = 0.0
 class WorkerBridge(worker_interface.WorkerBridge):
     COINBASE_NONCE_LENGTH = 8
     
-    def __init__(self, node, my_pubkey_hash, donation_percentage, merged_urls, worker_fee, args, pubkeys, bitcoind):
+    def __init__(self, node, my_address, donation_percentage, merged_urls, worker_fee, args, pubkeys, bitcoind, share_rate):
         worker_interface.WorkerBridge.__init__(self)
         self.recent_shares_ts_work = []
         
@@ -29,7 +29,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
         self.bitcoind = bitcoind
         self.pubkeys = pubkeys
         self.args = args
-        self.my_pubkey_hash = my_pubkey_hash
+        self.address = my_address
 
         self.donation_percentage = args.donation_percentage
         self.worker_fee = args.worker_fee
@@ -49,6 +49,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
         self.my_doa_share_hashes = set()
 
         self.address_throttle = 0
+        self.share_rate = share_rate
         
         self.tracker_view = forest.TrackerView(self.node.tracker, forest.get_attributedelta_type(dict(forest.AttributeDelta.attrs,
             my_count=lambda share: 1 if share.hash in self.my_share_hashes else 0,
@@ -109,6 +110,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
                     height=t['height'] + 1,
                     time=max(int(time.time() + 0.5), bb['timestamp'] + 1),
                     transactions=[],
+                    transaction_hashes=[],
                     transaction_fees=[],
                     merkle_link=bitcoin_data.calculate_merkle_link([None], 0),
                     subsidy=self.node.net.PARENT.SUBSIDY_FUNC(self.node.bitcoind_work.value['height']),
@@ -155,12 +157,14 @@ class WorkerBridge(worker_interface.WorkerBridge):
         self.address_throttle=time.time()
         print "ATTEMPTING TO FRESHEN ADDRESS."
         self.address = yield deferral.retry('Error getting a dynamic address from bitcoind:', 5)(lambda: self.bitcoind.rpc_getnewaddress('p2pool'))()
-        new_pubkey = bitcoin_data.address_to_pubkey_hash(self.address, self.net)
+        # new_pubkey = bitcoin_data.address_to_pubkey_hash(self.address, self.net)
         self.pubkeys.popleft()
-        self.pubkeys.addkey(new_pubkey)
+        # self.pubkeys.addkey(new_pubkey)
+        self.pubkeys.addkey({'address': self.address})
         print " Updated payout pool:"
         for i in range(len(self.pubkeys.keys)):
-            print '    ...payout %d: %s(%f)' % (i, bitcoin_data.pubkey_hash_to_address(self.pubkeys.keys[i], self.net),self.pubkeys.keyweights[i],)
+            print('    ...payout %d: %s(%f)' %
+                    (i, self.address, self.pubkeys.keyweights[i]))
         self.pubkeys.updatestamp(c)
         print " Next address rotation in : %fs" % (time.time()-c+self.args.timeaddresses)
  
@@ -170,6 +174,14 @@ class WorkerBridge(worker_interface.WorkerBridge):
         
         user, contents2 = contents[0].strip(), contents[1:]
         
+        worker = ''
+        if '_' in user:
+            worker = user.split('_')[1]
+            user = user.split('_')[0]
+        elif '.' in user:
+            worker = user.split('.')[1]
+            user = user.split('.')[0]
+
         desired_pseudoshare_target = None
         desired_share_target = None
         for symbol, parameter in zip(contents2[::2], contents2[1::2]):
@@ -188,20 +200,31 @@ class WorkerBridge(worker_interface.WorkerBridge):
 
         if self.args.address == 'dynamic':
             i = self.pubkeys.weighted()
-            pubkey_hash = self.pubkeys.keys[i]
+            address = self.pubkeys.keys[i]['address']
 
             c = time.time()
             if (c - self.pubkeys.stamp) > self.args.timeaddresses:
                 self.freshen_addresses(c)
 
         if random.uniform(0, 100) < self.worker_fee:
-            pubkey_hash = self.my_pubkey_hash
+            addrss = self.address
         else:
             try:
-                pubkey_hash = bitcoin_data.address_to_pubkey_hash(user, self.node.net.PARENT)
+                if self.node.best_share_var.value is not None:
+                    share_type = type(self.node.tracker.items[self.node.best_share_var.value])
+                else:
+                    share_type = p2pool_data.Share
+                ret = bitcoin_data.address_to_pubkey_hash(user, self.node.net.PARENT)
+                if share_type.VERSION < 34 and ret[1] != self.node.net.PARENT.ADDRESS_VERSION:
+                    print("not supporting %s yet, share version needs to be 34, but is %s."
+                            % (user, share_type.VERSION))
+                    raise ValueError
+                address = user
             except: # XXX blah
                 if self.args.address != 'dynamic':
-                    pubkey_hash = self.my_pubkey_hash
+                    address = self.address
+        if worker:
+            user = user + '.' + worker
         
         return user, pubkey_hash, desired_share_target, desired_pseudoshare_target
     
@@ -210,9 +233,10 @@ class WorkerBridge(worker_interface.WorkerBridge):
             raise jsonrpc.Error_for_code(-12345)(u'p2pool is not connected to any peers')
         if time.time() > self.current_work.value['last_update'] + 60:
             raise jsonrpc.Error_for_code(-12345)(u'lost contact with bitcoind')
-        user, pubkey_hash, desired_share_target, desired_pseudoshare_target = self.get_user_details(user)
-        return pubkey_hash, desired_share_target, desired_pseudoshare_target
-    
+        # user, pubkey_hash, desired_share_target, desired_pseudoshare_target = self.get_user_details(user)
+        # return pubkey_hash, desired_share_target, desired_pseudoshare_target
+        return self.get_user_details(user)
+
     def _estimate_local_hash_rate(self):
         if len(self.recent_shares_ts_work) == 50:
             hash_rate = sum(work for ts, work in self.recent_shares_ts_work[1:])//(self.recent_shares_ts_work[-1][0] - self.recent_shares_ts_work[0][0])
@@ -225,11 +249,12 @@ class WorkerBridge(worker_interface.WorkerBridge):
         miner_dead_hash_rates = {}
         datums, dt = self.local_rate_monitor.get_datums_in_last()
         for datum in datums:
-            miner_hash_rates[datum['user']] = miner_hash_rates.get(datum['user'], 0) + datum['work']/dt
-            if datum['dead']:
-                miner_dead_hash_rates[datum['user']] = miner_dead_hash_rates.get(datum['user'], 0) + datum['work']/dt
-        return miner_hash_rates, miner_dead_hash_rates
+            addr_hash_rates[datum['pubkey_hash']] = addr_hash_rates.get(datum['pubkey_hash'], 0) + datum['work']/dt
+            addr_hash_rates[datum['address']] = \
+                    addr_hash_rates.get(datum['address'], 0) + datum['work']/dt
+        return addr_hash_rates
     
+    # 2b or not 2b?
     def get_local_addr_rates(self):
         addr_hash_rates = {}
         datums, dt = self.local_addr_rate_monitor.get_datums_in_last()
@@ -244,9 +269,10 @@ class WorkerBridge(worker_interface.WorkerBridge):
             raise jsonrpc.Error_for_code(-12345)(u'p2pool is not connected to any peers')
         if self.node.best_share_var.value is None and self.node.net.PERSIST:
             raise jsonrpc.Error_for_code(-12345)(u'p2pool is downloading shares')
-        unknown_rules = set(r[1:] if r.startswith('!') else r for r in self.node.bitcoind_work.value['rules']) - set(getattr(self.node.net, 'SOFTFORKS_REQUIRED', []))
+        unknown_rules = set(r[1:] if r.startswith('!') else r for r in self.node.bitcoind_work.value['rules'] if r) - set(getattr(self.node.net, 'SOFTFORKS_REQUIRED', []))
         if unknown_rules:
             print "Unknown softforks found: ", unknown_rules
+            print "Required softforks: ", self.node.bitcoind_work.value['rules'], "\tKnown: ", getattr(self.node.net, 'SOFTFORKS_REQUIRED', [])
             raise jsonrpc.Error_for_code(-12345)(u'unknown rule activated')
         
         if self.merged_work.value:
@@ -262,7 +288,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
             mm_data = ''
             mm_later = []
         
-        tx_hashes = [bitcoin_data.hash256(bitcoin_data.tx_type.pack(tx)) for tx in self.current_work.value['transactions']]
+        tx_hashes = self.current_work.value['transaction_hashes']
         tx_map = dict(zip(tx_hashes, self.current_work.value['transactions']))
 
         self.node.mining2_txs_var.set(tx_map) # let node.py know not to evict these transactions
@@ -298,10 +324,15 @@ class WorkerBridge(worker_interface.WorkerBridge):
                 desired_share_target = min(desired_share_target,
                     bitcoin_data.average_attempts_to_target(local_hash_rate * self.node.net.SHARE_PERIOD / 0.0167)) # limit to 1.67% of pool shares by modulating share difficulty
             
+            if self.node.punish:
+                print "trying to punish a share by mining a low-diff share"
+                desired_share_target = bitcoin_data.difficulty_to_target(1.)
+            local_addr_rates = self.get_local_addr_rates()
+
             lookbehind = 3600//self.node.net.SHARE_PERIOD
             block_subsidy = self.node.bitcoind_work.value['subsidy']
             if previous_share is not None and self.node.tracker.get_height(previous_share.hash) > lookbehind:
-                expected_payout_per_block = local_addr_rates.get(pubkey_hash, 0)/p2pool_data.get_pool_attempts_per_second(self.node.tracker, self.node.best_share_var.value, lookbehind) \
+                expected_payout_per_block = local_addr_rates.get(address, 0)/p2pool_data.get_pool_attempts_per_second(self.node.tracker, self.node.best_share_var.value, lookbehind) \
                     * block_subsidy*(1-self.donation_percentage/100) # XXX doesn't use global stale rate to compute pool hash
                 if expected_payout_per_block < self.node.net.PARENT.DUST_THRESHOLD:
                     desired_share_target = min(desired_share_target,
@@ -316,9 +347,9 @@ class WorkerBridge(worker_interface.WorkerBridge):
                     coinbase=(script.create_push_script([
                         self.current_work.value['height'],
                          ] + ([mm_data] if mm_data else []) + self.args.coinb_texts
-                     + ['http://c2pool.bit']) + self.current_work.value['coinbaseflags'])[:100],
+                    ) + self.current_work.value['coinbaseflags'])[:100],
                     nonce=random.randrange(2**32),
-                    pubkey_hash=pubkey_hash,
+                    address=address,
                     subsidy=self.current_work.value['subsidy'],
                     donation=math.perfect_round(65535*self.donation_percentage/100),
                     stale_info=(lambda (orphans, doas), total, (orphans_recorded_in_chain, doas_recorded_in_chain):
@@ -341,52 +372,57 @@ class WorkerBridge(worker_interface.WorkerBridge):
         packed_gentx = bitcoin_data.tx_id_type.pack(gentx) # stratum miners work with stripped transactions
         other_transactions = [tx_map[tx_hash] for tx_hash in other_transaction_hashes]
         
+        del tx_hashes
+        if self.node.cur_share_ver >= 34:
+            tx_map = {} # we can free up this memory now
+
         mm_later = [(dict(aux_work, target=aux_work['target'] if aux_work['target'] != 'p2pool' else share_info['bits'].target), index, hashes) for aux_work, index, hashes in mm_later]
         
         if desired_pseudoshare_target is None:
             target = bitcoin_data.difficulty_to_target(float(1.0 / self.node.net.PARENT.DUMB_SCRYPT_DIFF))
             local_hash_rate = self._estimate_local_hash_rate()
             if local_hash_rate is not None:
-                target = bitcoin_data.average_attempts_to_target(local_hash_rate * 1) # target 10 share responses every second by modulating pseudoshare difficulty
+                target = min(target,
+                    bitcoin_data.average_attempts_to_target(local_hash_rate * 1)) # target 10 share responses every second by modulating pseudoshare difficulty
             else:
                 # If we don't yet have an estimated node hashrate, then we still need to not undershoot the difficulty.
                 # Otherwise, we might get 1 PH/s of hashrate on difficulty settings appropriate for 1 GH/s.
                 # 1/3000th the difficulty of a full share should be a reasonable upper bound. That way, if
                 # one node has the whole p2pool hashrate, it will still only need to process one pseudoshare
                 # every ~0.01 seconds.
+                block_subsidy = self.node.bitcoind_work.value['subsidy']
                 target = min(target, 3000 * bitcoin_data.average_attempts_to_target((bitcoin_data.target_to_average_attempts(
                     self.node.bitcoind_work.value['bits'].target)*self.node.net.SPREAD)*self.node.net.PARENT.DUST_THRESHOLD/block_subsidy))
-                
-                
-                target = max(target, share_info['bits'].target)
-                for aux_work, index, hashes in mm_later:
-                    target = max(target, aux_work['target'])
-                target = math.clip(target, self.node.net.PARENT.SANE_TARGET_RANGE)
         else:
             target = desired_pseudoshare_target
+        target = max(target, share_info['bits'].target)
+        for aux_work, index, hashes in mm_later:
+            target = max(target, aux_work['target'])
+        target = math.clip(target, self.node.net.PARENT.SANE_TARGET_RANGE)
         
         
         getwork_time = time.time()
         lp_count = self.new_work_event.times
         merkle_link = bitcoin_data.calculate_merkle_link([None] + other_transaction_hashes, 0) if share_info.get('segwit_data', None) is None else share_info['segwit_data']['txid_merkle_link']
         
+        del other_transaction_hashes
+
         if print_throttle is 0.0:
             print_throttle = time.time()
         else:
             current_time = time.time()
             if (current_time - print_throttle) > 5.0:
-                print 'New work for %s! Diff: %.02f Share diff: %.02f Block value: %.2f %s (%i tx, %.0f kB)' % (
-                    bitcoin_data.pubkey_hash_to_address(pubkey_hash, self.node.net.PARENT),
-                    bitcoin_data.target_to_difficulty(target),
+                print 'New work! Diff: %.02f Share diff: %.02f Block value: %.2f %s (%i tx, %.0f kB)' % (
                     bitcoin_data.target_to_difficulty(share_info['bits'].target),
                     self.current_work.value['subsidy']*1e-8, self.node.net.PARENT.SYMBOL,
                     len(self.current_work.value['transactions']),
-                    sum(map(bitcoin_data.tx_type.packed_size, self.current_work.value['transactions']))/1000.,
+                    # sum(map(bitcoin_data.tx_type.packed_size, self.current_work.value['transactions']))/1000.,
+                    sum((bitcoin_data.get_size(tx) for tx in self.current_work.value['transactions']))/1000.,
                 )
                 print_throttle = time.time()
 
         #need this for stats
-        self.last_work_shares.value[bitcoin_data.pubkey_hash_to_address(pubkey_hash, self.node.net.PARENT)]=share_info['bits']
+        self.last_work_shares.value[address] = share_info['bits']
         
         ba = dict(
             version=max(self.current_work.value['version'], 0x20000000),
@@ -401,7 +437,7 @@ class WorkerBridge(worker_interface.WorkerBridge):
         
         received_header_hashes = set()
         
-        def got_response(header, user, coinbase_nonce):
+        def got_response(header, username, coinbase_nonce, pseudoshare_target):
             t0 = time.time()
             assert len(coinbase_nonce) == self.COINBASE_NONCE_LENGTH
             new_packed_gentx = packed_gentx[:-self.COINBASE_NONCE_LENGTH-4] + coinbase_nonce + packed_gentx[-4:] if coinbase_nonce != '\0'*self.COINBASE_NONCE_LENGTH else packed_gentx
@@ -420,10 +456,11 @@ class WorkerBridge(worker_interface.WorkerBridge):
                         print
                         print u'\u001b[32mGOT BLOCK FROM MINER! Passing to bitcoind! %s%064x\u001B[0m' % (self.node.net.PARENT.BLOCK_EXPLORER_URL_PREFIX, header_hash)
                         print
+                    helper.submit_block(dict(header=header, txs=[new_gentx] + other_transactions), False, self.node)
             except:
                 log.err(None, 'Error while processing potential block:')
             
-            user, _, _, _ = self.get_user_details(user)
+            username, _, _, _ = self.get_user_details(username)
             assert header['previous_block'] == ba['previous_block']
             assert header['merkle_root'] == bitcoin_data.check_merkle_link(bitcoin_data.hash256(new_packed_gentx), merkle_link)
             assert header['bits'] == ba['bits']
@@ -462,29 +499,43 @@ class WorkerBridge(worker_interface.WorkerBridge):
                 share = get_share(header, last_txout_nonce)
                 
                 print u'\u001b[32mGOT SHARE! %s %s prev %s age %.2fs%s\u001b[0m' % (
-                    user,
+                    username,
                     p2pool_data.format_hash(share.hash),
                     p2pool_data.format_hash(share.previous_hash),
                     time.time() - getwork_time,
                     ' DEAD ON ARRIVAL' if not on_time else '',
                 )
 
-                # node.py will sometimes forget transactions if bitcoind's work has changed since this stratum
-                # job was assigned. Fortunately, the tx_map is still in in our scope from this job, so we can use that
-                # to refill it if needed.
+                if self.node.cur_share_ver < 34:
+                    # node.py will sometimes forget transactions if bitcoind's work has changed since this stratum
+                    # job was assigned. Fortunately, the tx_map is still in in our scope from this job, so we can use that
+                    # to refill it if needed.
 
-                known_txs = self.node.known_txs_var.value
-                missing = {hsh:val for (hsh, val) in tx_map.iteritems() if not hsh in known_txs}
-                if missing:
-                    print "Warning: %i transactions were erroneously evicted from known_txs_var. Refilling now." % len(missing)
-                    self.node.known_txs_var.add(missing)
+                    known_txs = self.node.known_txs_var.value
+                    missing = {hsh:val for (hsh, val) in tx_map.iteritems() if not hsh in known_txs}
+                    if missing:
+                        print "Warning: %i transactions were erroneously evicted from known_txs_var. Refilling now." % len(missing)
+                        self.node.known_txs_var.add(missing)
+
+                # known_txs = self.node.known_txs_var.value
+                # missing = {hsh:val for (hsh, val) in tx_map.iteritems() if not hsh in known_txs}
+                # if missing:
+                #     print "Warning: %i transactions were erroneously evicted from known_txs_var. Refilling now." % len(missing)
+                #     self.node.known_txs_var.add(missing)
 
                 self.my_share_hashes.add(share.hash)
                 if not on_time:
                     self.my_doa_share_hashes.add(share.hash)
                 
-                self.node.tracker.add(share)
-                self.node.set_best_share()
+                sibling_count = len(self.node.tracker.reverse.get(share.previous_hash, set()))
+                if on_time or sibling_count < 4:
+                    self.node.tracker.add(share)
+                else:
+                    print "Already have %i DOA shares with this parent. Not adding more." % sibling_count
+                if on_time:
+                    self.node.set_best_share()
+                else:
+                    print "Not considering work switching to DOA share"
                 
                 try:
                     if (pow_hash <= header['bits'].target or p2pool.DEBUG) and self.node.p2p_node is not None:
@@ -494,25 +545,26 @@ class WorkerBridge(worker_interface.WorkerBridge):
                 
                 self.share_received.happened(bitcoin_data.target_to_average_attempts(share.target), not on_time, share.hash)
             
-            if pow_hash > target:
-                print 'Worker %s submitted share with hash > target:' % (user,)
-                print '    Hash:   %56x' % (pow_hash,)
-                print '    Target: %56x' % (target,)
+            if pow_hash > pseudoshare_target:
+                print 'Worker %s submitted share with hash > target:' % (username,)
+                print '    Hash:   %064x' % (pow_hash,)
+                print '    Target: %064x' % (pseudoshare_target,)
             elif header_hash in received_header_hashes:
-                print >>sys.stderr, 'Worker %s submitted share more than once!' % (user,)
+                print >>sys.stderr, 'Worker %s submitted share more than once!' % (username,)
             else:
                 received_header_hashes.add(header_hash)
                 
-                self.pseudoshare_received.happened(bitcoin_data.target_to_average_attempts(target), not on_time, user)
-                self.recent_shares_ts_work.append((time.time(), bitcoin_data.target_to_average_attempts(target)))
+                self.pseudoshare_received.happened(bitcoin_data.target_to_average_attempts(pseudoshare_target), not on_time, username)
+                self.recent_shares_ts_work.append((time.time(), bitcoin_data.target_to_average_attempts(pseudoshare_target)))
                 while len(self.recent_shares_ts_work) > 50:
                     self.recent_shares_ts_work.pop(0)
-                self.local_rate_monitor.add_datum(dict(work=bitcoin_data.target_to_average_attempts(target), dead=not on_time, user=user, share_target=share_info['bits'].target))
-                self.local_addr_rate_monitor.add_datum(dict(work=bitcoin_data.target_to_average_attempts(target), pubkey_hash=pubkey_hash))
+                self.local_rate_monitor.add_datum(dict(work=bitcoin_data.target_to_average_attempts(pseudoshare_target), dead=not on_time, user=username, share_target=share_info['bits'].target))
+                self.local_addr_rate_monitor.add_datum(dict(work=bitcoin_data.target_to_average_attempts(target), address=address))
             t1 = time.time()
-            if p2pool.BENCH and (t1-t1) > .01: print "%8.3f ms for work.py:got_response()" % ((t1-t0)*1000.)
+            if p2pool.BENCH and (t1-t0) > .01: print "%8.3f ms for work.py:got_response()" % ((t1-t0)*1000.)
 
             return on_time
+            
         t1 = time.time()
-        if p2pool.BENCH: print "%8.3f ms for work.py:get_work()" % ((t1-t0)*1000.)
+        if p2pool.BENCH: print "%8.3f ms for work.py:get_work(%s, %s)" % ((t1-t0)*1000., user, address)
         return ba, got_response
