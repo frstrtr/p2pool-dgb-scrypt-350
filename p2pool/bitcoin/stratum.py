@@ -6,9 +6,8 @@ from twisted.internet import protocol, reactor
 from twisted.python import log
 
 from p2pool.bitcoin import data as bitcoin_data, getwork
-from p2pool.util import expiring_dict, jsonrpc, pack, math
+from p2pool.util import expiring_dict, jsonrpc, pack
 
-# Merge pull request #42 from jtoomim/stratum-autodiff
 def clip(num, bot, top):
     return min(top, max(bot, num))
 
@@ -19,8 +18,6 @@ class StratumRPCMiningProvider(object):
         self.other = other
         self.transport = transport
         
-        self.desired_share_target = None
-
         self.username = None
         self.handler_map = expiring_dict.ExpiringDict(300)
         
@@ -31,6 +28,7 @@ class StratumRPCMiningProvider(object):
         self.share_rate = wb.share_rate
         self.fixed_target = False
         self.desired_pseudoshare_target = None
+
     
     def rpc_subscribe(self, miner_version=None, session_id=None, *args):
         reactor.callLater(0, self._send_work)
@@ -46,12 +44,11 @@ class StratumRPCMiningProvider(object):
             print '>>>Authorize: %s from %s' % (username, self.transport.getPeer().host)
             self.authorized = username
         self.username = username.strip()
-
+        
+        self.user, self.address, self.desired_share_target, self.desired_pseudoshare_target = self.wb.get_user_details(username)
         reactor.callLater(0, self._send_work)
-
         return True
-    
-    # Workaround for broken Braiins OS version-rolling extension (issue #41)
+
     def rpc_configure(self, extensions, extensionParameters):
         #extensions is a list of extension codes defined in BIP310
         #extensionParameters is a dict of parameters for each extension code
@@ -59,7 +56,6 @@ class StratumRPCMiningProvider(object):
             #mask from miner is mandatory but we dont use it
             miner_mask = extensionParameters['version-rolling.mask']
             #min-bit-count from miner is mandatory but we dont use it
-            minbitcount = extensionParameters['version-rolling.min-bit-count']
             try:
                 minbitcount = extensionParameters['version-rolling.min-bit-count']
             except:
@@ -68,6 +64,7 @@ class StratumRPCMiningProvider(object):
             #according to the spec, pool should return largest mask possible (to support mining proxies)
             return {"version-rolling" : True, "version-rolling.mask" : '{:08x}'.format(self.pool_version_mask&(int(miner_mask,16)))}
             #pool can send mining.set_version_mask at any time if the pool mask changes
+
         if 'minimum-difficulty' in extensions:
             print 'Extension method minimum-difficulty not implemented'
         if 'subscribe-extranonce' in extensions:
@@ -88,8 +85,6 @@ class StratumRPCMiningProvider(object):
             self.fixed_target = False
             self.target = x['share_target'] if self.target == None else max(x['min_share_target'], self.target)
         jobid = str(random.randrange(2**128))
-
-        
         self.other.svc_mining.rpc_set_difficulty(bitcoin_data.target_to_difficulty(self.target)*self.wb.net.DUMB_SCRYPT_DIFF).addErrback(lambda err: None)
         self.other.svc_mining.rpc_notify(
             jobid, # jobid
@@ -119,7 +114,6 @@ class StratumRPCMiningProvider(object):
         job_version = x['version']
         nversion = job_version
         #check if miner changed bits that they were not supposed to change
-        #print version_bits
         if version_bits:
             if ((~self.pool_version_mask) & int(version_bits,16)) != 0:
                 #todo: how to raise error back to miner?
@@ -156,6 +150,7 @@ class StratumRPCMiningProvider(object):
                 self._send_work()
 
         return result
+
     
     def close(self):
         self.wb.new_work_event.unwatch(self.watch_id)

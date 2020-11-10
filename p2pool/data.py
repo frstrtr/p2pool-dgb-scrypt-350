@@ -51,7 +51,7 @@ share_type = pack.ComposedType([
 def load_share(share, net, peer_addr):
     assert peer_addr is None or isinstance(peer_addr, tuple)
     if share['type'] in share_versions:
-        net.PARENT.padding_bugfix = (share['type'] >= 35) # fix "Odd-length string" v35 share startup bug
+        net.PARENT.padding_bugfix = (share['type'] >= 35)
         return share_versions[share['type']](net, peer_addr, share_versions[share['type']].get_dynamic_types(net)['share_type'].unpack(share['contents']))
 
     elif share['type'] < Share.VERSION:
@@ -65,31 +65,7 @@ def is_segwit_activated(version, net):
     segwit_activation_version = getattr(net, 'SEGWIT_ACTIVATION_VERSION', 0)
     return version >= segwit_activation_version and segwit_activation_version > 0
 
-#Farsider350 MultiSig DGB script
-#DONATION_SCRIPT = '522102d92234777b63f6dbc0a0382bbcb54e0befb01f6a4b062122fadab044af6c06882103b27bbc5019d3543586482a995e8f57c6ad506a4dafa6bf7cc89533b8dcb2df1b2102911ff87e792ec75b3a30dc115dfd06ec27c93b27034aa8e7cefbee6477e5d03453ae'.decode('hex')
-# "DTk7z3o9yHBnbFG9oh1KB6XMWBYHoSF48K",
-# "DJpBr6o9wkxezqsLPGXAXfQy2Dpxm5Fyec",
-# "DTGSPpJDgDh46qooxynHgkAV57iNJeH2NP"
-# "2 02d92234777b63f6dbc0a0382bbcb54e0befb01f6a4b062122fadab044af6c0688 03b27bbc5019d3543586482a995e8f57c6ad506a4dafa6bf7cc89533b8dcb2df1b 02911ff87e792ec75b3a30dc115dfd06ec27c93b27034aa8e7cefbee6477e5d034 3 OP_CHECKMULTISIG",
-
-#Forrest p2pk BTC address (DGB uses same coin prefixes for private keys as BTC, so the key for BTC equal for DGB address uncompressed!!!)
-#DONATION_SCRIPT = '4104ffd03de44a6e11b9917f3a29f9443283d9871c9d743ef30d5eddcd37094b64d1b3d8090496b53256786bf5c82932ec23c3b74d9f05a6f95a8b5529352656664bac'.decode('hex')#BTC
-
-#frstrtr P2PK
-#DONATION_SCRIPT = '410457a337b86557f5b15c94544ad267f96a582dc2b91e6873968ff7ba174fda6874af979cd9af41ec2032dfdfd6587be5b14a4355546d541388c3f1555a67d11c2dac'.decode('hex')#DJK
-
-#BRUTANG 144.202.73.168 Multisig DGB script - ilsawa?
-#DONATION_SCRIPT = '522102ed2a267bb573c045ef4dbe414095eeefe76ab0c47726078c9b7b1c496fee2e6221023052352f04625282ffd5e5f95a4cef52107146aedb434d6300da1d34946320ea52ae'.decode('hex')
-# "DEuzNgiif29gYe7vNeXF8gDBPydYji6hBc"
-# "DTvN7hB8dXEVLNjvEkCaEm34AXb8LpxmKM"
-# "2 02ed2a267bb573c045ef4dbe414095eeefe76ab0c47726078c9b7b1c496fee2e62 023052352f04625282ffd5e5f95a4cef52107146aedb434d6300da1d34946320ea 2 OP_CHECKMULTISIG",
-
-#thumb.dk 86.52.128.133 (2 of 3 Multisig Lawzt+Forrest+Frstrtr)
-DONATION_SCRIPT = '5221038ab82f3a4f569c4571c483d56729e83399795badb32821cab64d04e7b5d106864104ffd03de44a6e11b9917f3a29f9443283d9871c9d743ef30d5eddcd37094b64d1b3d8090496b53256786bf5c82932ec23c3b74d9f05a6f95a8b5529352656664b410457a337b86557f5b15c94544ad267f96a582dc2b91e6873968ff7ba174fda6874af979cd9af41ec2032dfdfd6587be5b14a4355546d541388c3f1555a67d11c2d53ae'.decode('hex')
-# "DFeSG8WHNjxRFb77aXoEazbkEZQ5kLggkf"
-# "DQ8AwqR2XJE9G5dSEfspJYH7Spre85dj6L"
-# "DJKrhVNZtTggUFHJ4CKCkmyWDSRUewyqm3"
-
+DONATION_SCRIPT = '4104ffd03de44a6e11b9917f3a29f9443283d9871c9d743ef30d5eddcd37094b64d1b3d8090496b53256786bf5c82932ec23c3b74d9f05a6f95a8b5529352656664bac'.decode('hex')
 def donation_script_to_address(net):
     try:
         return bitcoin_data.script2_to_address(
@@ -102,7 +78,7 @@ class BaseShare(object):
     VERSION = 0
     VOTING_VERSION = 0
     SUCCESSOR = None
-    MINIMUM_PROTOCOL_VERSION = 1400 # V34 shares: Hard fork logic for the script padding bugfix
+    MINIMUM_PROTOCOL_VERSION = 1400
     
     small_block_header_type = pack.ComposedType([
         ('version', pack.VarIntType()),
@@ -137,14 +113,17 @@ class BaseShare(object):
                 ('previous_share_hash', pack.PossiblyNoneType(0, pack.IntType(256))),
                 ('coinbase', pack.VarStrType()),
                 ('nonce', pack.IntType(32)),
-                ('pubkey_hash', pack.IntType(160)),
+                ] + ([('address', pack.VarStrType())]
+                        if cls.VERSION >= 34
+                            else [('pubkey_hash', pack.IntType(160))]) + [
                 ('subsidy', pack.IntType(64)),
                 ('donation', pack.IntType(16)),
                 ('stale_info', pack.EnumType(pack.IntType(8), dict((k, {0: None, 253: 'orphan', 254: 'doa'}.get(k, 'unk%i' % (k,))) for k in xrange(256)))),
                 ('desired_version', pack.VarIntType()),
-            ]))] + ([segwit_data] if is_segwit_activated(cls.VERSION, net) else []) + [
+            ]))] + ([segwit_data] if is_segwit_activated(cls.VERSION, net) else []) + ([
             ('new_transaction_hashes', pack.ListType(pack.IntType(256))),
             ('transaction_hash_refs', pack.ListType(pack.VarIntType(), 2)), # pairs of share_count, tx_count
+            ] if cls.VERSION < 34 else []) + [
             ('far_share_hash', pack.PossiblyNoneType(0, pack.IntType(256))),
             ('max_bits', bitcoin_data.FloatingIntegerType()),
             ('bits', bitcoin_data.FloatingIntegerType()),
@@ -199,7 +178,6 @@ class BaseShare(object):
         transaction_hash_refs = []
         other_transaction_hashes = []
         t1 = time.time()
-        # past_shares = list(tracker.get_chain(share_data['previous_share_hash'], min(height, 100)))
         tx_hash_to_this = {}
         if cls.VERSION < 34:
             past_shares = list(tracker.get_chain(share_data['previous_share_hash'], min(height, 100)))
@@ -207,7 +185,7 @@ class BaseShare(object):
                 for j, tx_hash in enumerate(share.new_transaction_hashes):
                     if tx_hash not in tx_hash_to_this:
                         tx_hash_to_this[tx_hash] = [1+i, j] # share_count, tx_count
-        
+
         t2 = time.time()
         for tx_hash, fee in desired_other_transaction_hashes_and_fees:
             if known_txs is not None:
@@ -249,7 +227,7 @@ class BaseShare(object):
             transaction_hash_refs = array.array('L', transaction_hash_refs)
         t4 = time.time()
 
-        if all_transaction_stripped_size:
+        if all_transaction_stripped_size and p2pool.DEBUG:
             print "Generating a share with %i bytes, %i WU (new: %i B, %i WU) in %i tx (%i new), plus est gentx of %i bytes/%i WU" % (
                 all_transaction_real_size,
                 all_transaction_weight,
@@ -273,8 +251,6 @@ class BaseShare(object):
             assert base_subsidy is not None
             share_data = dict(share_data, subsidy=base_subsidy + definite_fees)
         
-        #test here TODO 
-
         weights, total_weight, donation_weight = tracker.get_cumulative_weights(previous_share.share_data['previous_share_hash'] if previous_share is not None else None,
             max(0, min(height, net.REAL_CHAIN_LENGTH) - 1),
             65535*net.SPREAD*bitcoin_data.target_to_average_attempts(block_target),
@@ -282,12 +258,6 @@ class BaseShare(object):
         assert total_weight == sum(weights.itervalues()) + donation_weight, (total_weight, sum(weights.itervalues()) + donation_weight)
         
         amounts = dict((script, share_data['subsidy']*(199*weight)//(200*total_weight)) for script, weight in weights.iteritems()) # 99.5% goes according to weights prior to this share
-        """
-        this_script = bitcoin_data.pubkey_hash_to_script2(share_data['pubkey_hash'])
-        amounts[this_script] = amounts.get(this_script, 0) + share_data['subsidy']//200 # 0.5% goes to block finder
-        amounts[DONATION_SCRIPT] = amounts.get(DONATION_SCRIPT, 0) + share_data['subsidy'] - sum(amounts.itervalues()) # all that's left over is the donation weight and some extra satoshis due to rounding
-        """
-
         if 'address' not in share_data:
             this_address = bitcoin_data.pubkey_hash_to_address(
                     share_data['pubkey_hash'], net.PARENT.ADDRESS_VERSION,
@@ -307,13 +277,14 @@ class BaseShare(object):
             share_data['pubkey_hash'], _, _ = bitcoin_data.address_to_pubkey_hash(
                     this_address, net.PARENT)
             del(share_data['address'])
-
+        
         if sum(amounts.itervalues()) != share_data['subsidy'] or any(x < 0 for x in amounts.itervalues()):
             raise ValueError()
-        
-        dests = sorted(amounts.iterkeys(), key=lambda script: (script == DONATION_SCRIPT, amounts[script], script))[-4000:] # block length limit, unlikely to ever be hit
 
-        if len(dests) >= 200: # sha256 only
+        # block length limit, unlikely to ever be hit
+        dests = sorted(amounts.iterkeys(), key=lambda address: (
+            address == donation_address, amounts[address], address))[-4000:]
+        if len(dests) >= 200:
             print "found %i payment dests. Antminer S9s may crash when this is close to 226." % len(dests)
 
         segwit_activated = is_segwit_activated(cls.VERSION, net)
@@ -340,12 +311,9 @@ class BaseShare(object):
                         (previous_share.timestamp + net.SHARE_PERIOD) + (net.SHARE_PERIOD - 1),)) if previous_share is not None else desired_timestamp
                       ) if cls.VERSION < 32 else
                       max(desired_timestamp, (previous_share.timestamp + 1)) if previous_share is not None else desired_timestamp,
-            new_transaction_hashes=new_transaction_hashes,
-            transaction_hash_refs=transaction_hash_refs,
             absheight=((previous_share.absheight if previous_share is not None else 0) + 1) % 2**32,
             abswork=((previous_share.abswork if previous_share is not None else 0) + bitcoin_data.target_to_average_attempts(bits.target)) % 2**128,
         )
-
         if cls.VERSION < 34:
             share_info['new_transaction_hashes'] = new_transaction_hashes
             share_info['transaction_hash_refs'] = transaction_hash_refs
@@ -367,7 +335,7 @@ class BaseShare(object):
                         script=bitcoin_data.address_to_script2(addr, net.PARENT)
                         ) for addr in dests if amounts[addr] and addr != donation_address]
         payouts.append({'script': DONATION_SCRIPT, 'value': amounts[donation_address]})
-        
+
         gentx = dict(
             version=1,
             tx_ins=[dict(
@@ -375,9 +343,14 @@ class BaseShare(object):
                 sequence=None,
                 script=share_data['coinbase'],
             )],
-            tx_outs=([dict(value=0, script='\x6a\x24\xaa\x21\xa9\xed' + pack.IntType(256).pack(witness_commitment_hash))] if segwit_activated else []) +
-                [dict(value=amounts[script], script=script) for script in dests if amounts[script] or script == DONATION_SCRIPT] +
-                [dict(value=0, script='\x6a\x28' + cls.get_ref_hash(net, share_info, ref_merkle_link) + pack.IntType(64).pack(last_txout_nonce))],
+            tx_outs=([dict(value=0, script='\x6a\x24\xaa\x21\xa9\xed' \
+                                           + pack.IntType(256).pack(
+                                                witness_commitment_hash))]
+                                           if segwit_activated else []) \
+                    + payouts \
+                    + [dict(value=0, script='\x6a\x28' + cls.get_ref_hash(
+                        net, share_info, ref_merkle_link) \
+                                + pack.IntType(64).pack(last_txout_nonce))],
             lock_time=0,
         )
         if segwit_activated:
@@ -397,7 +370,6 @@ class BaseShare(object):
             ))
             assert share.header == header # checks merkle_root
             return share
-
         t5 = time.time()
         if p2pool.BENCH: print "%8.3f ms for data.py:generate_transaction(). Parts: %8.3f %8.3f %8.3f %8.3f %8.3f " % (
             (t5-t0)*1000.,
@@ -446,10 +418,6 @@ class BaseShare(object):
         if not (2 <= len(self.share_info['share_data']['coinbase']) <= 100):
             raise ValueError('''bad coinbase size! %i bytes''' % (len(self.share_info['share_data']['coinbase']),))
         
-        #2b or not 2b?
-        if len(self.merkle_link['branch']) > 16 or (segwit_activated and len(self.share_info['segwit_data']['txid_merkle_link']['branch']) > 16):
-            raise ValueError('merkle branch too long!')
-        
         assert not self.hash_link['extra_data'], repr(self.hash_link['extra_data'])
         
         self.share_data = self.share_info['share_data']
@@ -457,8 +425,6 @@ class BaseShare(object):
         self.target = self.share_info['bits'].target
         self.timestamp = self.share_info['timestamp']
         self.previous_hash = self.share_data['previous_share_hash']
-
-        # self.new_script = bitcoin_data.pubkey_hash_to_script2(self.share_data['pubkey_hash'])
         if self.VERSION >= 34:
             self.new_script = bitcoin_data.address_to_script2(
                     self.share_data['address'], net.PARENT)
@@ -470,13 +436,12 @@ class BaseShare(object):
             self.address = bitcoin_data.pubkey_hash_to_address(
                     self.share_data['pubkey_hash'],
                     net.PARENT.ADDRESS_VERSION, -1, net.PARENT)
-
         self.desired_version = self.share_data['desired_version']
         self.absheight = self.share_info['absheight']
         self.abswork = self.share_info['abswork']
         if net.NAME == 'bitcoin' and self.absheight > 3927800 and self.desired_version == 16:
             raise ValueError("This is not a hardfork-supporting share!")
-
+        
         if self.VERSION < 34:
             n = set()
             for share_count, tx_count in self.iter_transaction_hash_refs():
@@ -522,14 +487,14 @@ class BaseShare(object):
             return zip()
         except KeyError:
             return zip()
-    
-    def check(self, tracker, other_txs=None):
+
+    def check(self, tracker, known_txs=None, block_abs_height_func=None, feecache=None):
         from p2pool import p2p
         if self.timestamp > int(time.time()) + 600:
             raise ValueError("Share timestamp is %i seconds in the future! Check your system clock." % \
                 self.timestamp - int(time.time()))
         counts = None
-        if self.share_data['previous_share_hash'] is not None:
+        if self.share_data['previous_share_hash'] is not None and block_abs_height_func is not None:
             previous_share = tracker.items[self.share_data['previous_share_hash']]
             if tracker.get_height(self.share_data['previous_share_hash']) >= self.net.CHAIN_LENGTH:
                 counts = get_desired_version_counts(tracker, tracker.get_nth_parent_hash(previous_share.hash, self.net.CHAIN_LENGTH*9//10), self.net.CHAIN_LENGTH//10)
@@ -551,9 +516,6 @@ class BaseShare(object):
         if known_txs is not None and not isinstance(known_txs, dict):
             print "Performing maybe-unnecessary packing and hashing"
             known_txs = dict((bitcoin_data.hash256(bitcoin_data.tx_type.pack(tx)), tx) for tx in known_txs)
-        
-        # 2b or not 2b?
-        # if other_txs is not None and not isinstance(other_txs, dict): other_txs = dict((bitcoin_data.hash256(bitcoin_data.tx_type.pack(tx)), tx) for tx in other_txs)
         
         share_info, gentx, other_tx_hashes2, get_share = self.generate_transaction(tracker, self.share_info['share_data'], self.header['bits'].target, self.share_info['timestamp'], self.share_info['bits'].target, self.contents['ref_merkle_link'], [(h, None) for h in other_tx_hashes], self.net,
             known_txs=None, last_txout_nonce=self.contents['last_txout_nonce'], segwit_data=self.share_info.get('segwit_data', None))
@@ -585,16 +547,17 @@ class BaseShare(object):
             self.naughty = 1 + tracker.items[self.share_data['previous_share_hash']].naughty
             if self.naughty > 6:
                 self.naughty = 0
-        
 
         assert other_tx_hashes2 == other_tx_hashes
         if share_info != self.share_info:
             raise ValueError('share_info invalid')
         if bitcoin_data.get_txid(gentx) != self.gentx_hash:
+            print bitcoin_data.get_txid(gentx), self.gentx_hash
+            print gentx
             raise ValueError('''gentx doesn't match hash_link''')
         if self.VERSION < 34:
-                if bitcoin_data.calculate_merkle_link([None] + other_tx_hashes, 0) != self.merkle_link: # the other hash commitments are checked in the share_info assertion
-                    raise ValueError('merkle_link and other_tx_hashes do not match')
+            if bitcoin_data.calculate_merkle_link([None] + other_tx_hashes, 0) != self.merkle_link: # the other hash commitments are checked in the share_info assertion
+                raise ValueError('merkle_link and other_tx_hashes do not match')
         
         update_min_protocol_version(counts, self)
 
@@ -612,7 +575,6 @@ class BaseShare(object):
         else:
             print("Received naughty=%i share: diff=%.2e hash=%064x miner=%s" %
                     (self.naughty, _diff, self.hash, self.address))
-
         return gentx # only used by as_block
     
     def get_other_tx_hashes(self, tracker):
@@ -679,14 +641,14 @@ class PaddingBugfixShare(BaseShare):
 class SegwitMiningShare(BaseShare):
     VERSION = 34
     VOTING_VERSION = 34
-    SUCCESSOR = None
     SUCCESSOR = PaddingBugfixShare
-    MINIMUM_PROTOCOL_VERSION = 3400
+    MINIMUM_PROTOCOL_VERSION = 3300
 
 class NewShare(BaseShare):
     VERSION = 33
     VOTING_VERSION = 33
-    SUCCESSOR = None
+    SUCCESSOR = PaddingBugfixShare
+    MINIMUM_PROTOCOL_VERSION = 3300
 
 class PreSegwitShare(BaseShare):
     VERSION = 32
@@ -707,7 +669,7 @@ class WeightsSkipList(forest.TrackerSkipList):
     def get_delta(self, element):
         from p2pool.bitcoin import data as bitcoin_data
         share = self.tracker.items[element]
-        att = bitcoin_data.target_to_average_attempts(share.target) #2**256//(target + 1)
+        att = bitcoin_data.target_to_average_attempts(share.target)
         return (1, {share.address: att*(65535-share.share_data['donation'])},
                 att*65535, att*share.share_data['donation'])
     
@@ -758,7 +720,7 @@ class OkayTracker(forest.Tracker):
         if height < self.net.CHAIN_LENGTH + 1 and last is not None:
             raise AssertionError()
         try:
-            share.gentx = share.check(self, known_txs, block_abs_height_func=block_abs_height_func, feecache=feecache) # Show raw coinbase in hex in share.html
+            share.gentx = share.check(self, known_txs, block_abs_height_func=block_abs_height_func, feecache=feecache)
         except:
             log.err(None, 'Share check failed: %064x -> %064x' % (share.hash, share.previous_hash if share.previous_hash is not None else 0))
             return False
@@ -780,7 +742,7 @@ class OkayTracker(forest.Tracker):
             head_height, last = self.get_height_and_last(head)
             
             for share in self.get_chain(head, head_height if last is None else min(5, max(0, head_height - self.net.CHAIN_LENGTH))):
-                if not self.attempt_verify(share, block_abs_height_func, known_txs, feecache):
+                if self.attempt_verify(share, block_abs_height_func, known_txs, feecache):
                     break
                 bads.append(share.hash)
             else:
@@ -814,7 +776,7 @@ class OkayTracker(forest.Tracker):
             get = min(want, can)
             #print 'Z', head_height, last_hash is None, last_height, last_last_hash is None, want, can, get
             for share in self.get_chain(last_hash, get):
-               if not self.attempt_verify(share, block_abs_height_func, known_txs, feecache):
+                if not self.attempt_verify(share, block_abs_height_func, known_txs, feecache):
                     break
             if head_height < self.net.CHAIN_LENGTH and last_last_hash is not None:
                 desired.add((
@@ -838,6 +800,7 @@ class OkayTracker(forest.Tracker):
             min(self.items[h].should_punish_reason(previous_block, bits, self, known_txs)[0], 1) * bitcoin_data.target_to_average_attempts(self.items[h].target),
             #self.items[h].peer_addr is None,
             -self.items[h].should_punish_reason(previous_block, bits, self, known_txs)[0],
+            #-self.items[h].should_punish_reason(previous_block, bits, self, known_txs)[0] * bitcoin_data.target_to_average_attempts(self.items[h].target),
             -self.items[h].time_seen,
         ), h) for h in self.verified.tails.get(best_tail, []))
         traditional_sort = sorted(((
@@ -845,10 +808,8 @@ class OkayTracker(forest.Tracker):
             #self.items[h].peer_addr is None,
             -self.items[h].time_seen, # assume they can't tell we should punish this share and will be sorting based on time
             -self.items[h].should_punish_reason(previous_block, bits, self, known_txs)[0],
-            ), h) for h in self.verified.tails.get(best_tail, []))
+        ), h) for h in self.verified.tails.get(best_tail, []))
         punish_aggressively = traditional_sort[-1][0][2] if traditional_sort else False
-        if punish_aggressively > 0:
-            print "Other nodes are going to follow a share we want to punish! Time to hulk up."
 
         if p2pool.DEBUG:
             print len(decorated_heads), 'heads. Top 10:'
@@ -858,9 +819,8 @@ class OkayTracker(forest.Tracker):
             for score, head_hash in traditional_sort[-10:]:
                 print '   ', format_hash(head_hash), format_hash(self.items[head_hash].previous_hash), score
         best_head_score, best = decorated_heads[-1] if decorated_heads else (None, None)
-        
-        punish = 0
 
+        punish = 0
         if best is not None:
             best_share = self.items[best]
             punish, punish_reason = best_share.should_punish_reason(previous_block, bits, self, known_txs)
@@ -886,6 +846,12 @@ class OkayTracker(forest.Tracker):
             
             timestamp_cutoff = min(int(time.time()), best_share.timestamp) - 3600
             target_cutoff = int(2**256//(self.net.SHARE_PERIOD*best_tail_score[1] + 1) * 2 + .5) if best_tail_score[1] is not None else 2**256-1
+
+            # Hard fork logic:
+            # If our best share is v34 or higher, we will correctly zero-pad output scripts
+            # Otherwise, we preserve a bug in order to avoid a chainsplit
+            self.net.PARENT.padding_bugfix = (best_share.VERSION >= 35)
+
         else:
             timestamp_cutoff = int(time.time()) - 24*60*60
             target_cutoff = 2**256-1
@@ -913,16 +879,16 @@ class OkayTracker(forest.Tracker):
 
 def update_min_protocol_version(counts, share):
     minpver = getattr(share.net, 'MINIMUM_PROTOCOL_VERSION', 1400)
-    newminpver = getattr(share.net, 'NEW_MINIMUM_PROTOCOL_VERSION', minpver)
-    if (counts is not None) and (type(share) is NewShare) and (minpver < newminpver):
+    newminpver = share.MINIMUM_PROTOCOL_VERSION
+    if (counts is not None) and (minpver < newminpver):
             if counts.get(share.VERSION, 0) >= sum(counts.itervalues())*95//100:
                 share.net.MINIMUM_PROTOCOL_VERSION = newminpver # Reject peers running obsolete nodes
                 print 'Setting MINIMUM_PROTOCOL_VERSION = %d' % (newminpver)
 
 def get_pool_attempts_per_second(tracker, previous_share_hash, dist, min_work=False, integer=False):
     assert dist >= 2
-    near = tracker.items[previous_share_hash] #last share
-    far = tracker.items[tracker.get_nth_parent_hash(previous_share_hash, dist - 1)] #last 200 shares back
+    near = tracker.items[previous_share_hash]
+    far = tracker.items[tracker.get_nth_parent_hash(previous_share_hash, dist - 1)]
     attempts = tracker.get_delta(near.hash, far.hash).work if not min_work else tracker.get_delta(near.hash, far.hash).min_work
     time = near.timestamp - far.timestamp
     if time <= 0:
@@ -978,7 +944,7 @@ def get_desired_version_counts(tracker, best_share_hash, dist):
         res[share.desired_version] = res.get(share.desired_version, 0) + bitcoin_data.target_to_average_attempts(share.target)
     return res
 
-def get_warnings(tracker, best_share, net, bitcoind_getnetworkinfo, bitcoind_work_value):
+def get_warnings(tracker, best_share, net, bitcoind_getinfo, bitcoind_work_value):
     res = []
     
     desired_version_counts = get_desired_version_counts(tracker, best_share,
@@ -986,14 +952,14 @@ def get_warnings(tracker, best_share, net, bitcoind_getnetworkinfo, bitcoind_wor
     majority_desired_version = max(desired_version_counts, key=lambda k: desired_version_counts[k])
     if majority_desired_version not in share_versions and desired_version_counts[majority_desired_version] > sum(desired_version_counts.itervalues())/2:
         res.append('A MAJORITY OF SHARES CONTAIN A VOTE FOR AN UNSUPPORTED SHARE IMPLEMENTATION! (v%i with %i%% support)\n'
-            'An upgrade is likely necessary. Check http://p2pool.forre.st/ for more information.' % (
+            'An upgrade is likely necessary. Check https://github.com/jtoomim/p2pool/tree/1mb_segwit or https://forum.bitcoin.com/pools/p2pool-decentralized-dos-resistant-trustless-censorship-resistant-pool-t69932-99999.html for more information.' % (
                 majority_desired_version, 100*desired_version_counts[majority_desired_version]/sum(desired_version_counts.itervalues())))
     
-    if bitcoind_getnetworkinfo['warnings'] != '':
-        if 'This is a pre-release test build' not in bitcoind_getnetworkinfo['warnings']:
-            res.append('(from bitcoind) %s' % (bitcoind_getnetworkinfo['warnings'],))
+    if bitcoind_getinfo['warnings'] != '':
+        if 'This is a pre-release test build' not in bitcoind_getinfo['warnings']:
+            res.append('(from bitcoind) %s' % (bitcoind_getinfo['warnings'],))
     
-    version_warning = getattr(net, 'VERSION_WARNING', lambda v: None)(bitcoind_getnetworkinfo['version'])
+    version_warning = getattr(net, 'VERSION_WARNING', lambda v: None)(bitcoind_getinfo['version'])
     if version_warning is not None:
         res.append(version_warning)
     
@@ -1009,9 +975,8 @@ def format_hash(x):
 
 class ShareStore(object):
     def __init__(self, prefix, net, share_cb, verified_hash_cb):
-        self.dirname = os.path.dirname(os.path.abspath(prefix)) #Путь к папке с файлами данных шар.
-        self.filename = os.path.basename(os.path.abspath(prefix)) #Название файла данных шар ['shares.']
-        self.archive_dirname = os.path.abspath(self.dirname + '/archive') #Путь к папке-архиву с данными шар.
+        self.dirname = os.path.dirname(os.path.abspath(prefix))
+        self.filename = os.path.basename(os.path.abspath(prefix))
         self.net = net
 
         start = time.time()
@@ -1053,13 +1018,10 @@ class ShareStore(object):
     def _add_line(self, line):
         filenames, next = self.get_filenames_and_next()
         if filenames and os.path.getsize(filenames[-1]) < 10e6:
-            # Если последний в списке файл меньше 1.000.000 байт [976,5625‬KB/0.95MB] 
             filename = filenames[-1]
         else:
-            # В противном случае создаем следующий
             filename = next
-
-        #'ab' mode = opens a file for appending in binary format
+        
         with open(filename, 'ab') as f:
             f.write(line + '\n')
         
@@ -1068,9 +1030,9 @@ class ShareStore(object):
     def add_share(self, share):
         for filename, (share_hashes, verified_hashes) in self.known.iteritems():
             if share.hash in share_hashes:
-                break #Если такой хэш уже есть, то шара не сохраняется.
+                break
         else:
-            filename = self._add_line("%i %s" % (5, share_type.pack(share.as_share()).encode('hex'))) # 5 - share separator in file
+            filename = self._add_line("%i %s" % (5, share_type.pack(share.as_share()).encode('hex')))
             share_hashes, verified_hashes = self.known.setdefault(filename, (set(), set()))
             share_hashes.add(share.hash)
         share_hashes, verified_hashes = self.known_desired.setdefault(filename, (set(), set()))
@@ -1081,14 +1043,13 @@ class ShareStore(object):
             if share_hash in verified_hashes:
                 break
         else:
-            filename = self._add_line("%i %x" % (2, share_hash)) # 2 - verified share separator in file
+            filename = self._add_line("%i %x" % (2, share_hash))
             share_hashes, verified_hashes = self.known.setdefault(filename, (set(), set()))
             verified_hashes.add(share_hash)
         share_hashes, verified_hashes = self.known_desired.setdefault(filename, (set(), set()))
         verified_hashes.add(share_hash)
     
     def get_filenames_and_next(self):
-        ''' Метод возвращает список доступных файлов и название следующего, если доступные будут заполнены. '''
         suffixes = sorted(int(x[len(self.filename):]) for x in os.listdir(self.dirname) if x.startswith(self.filename) and x[len(self.filename):].isdigit())
         return [os.path.join(self.dirname, self.filename + str(suffix)) for suffix in suffixes], os.path.join(self.dirname, self.filename + (str(suffixes[-1] + 1) if suffixes else str(0)))
     
@@ -1103,17 +1064,9 @@ class ShareStore(object):
             if share_hash in verified_hashes:
                 verified_hashes.remove(share_hash)
         self.check_remove()
-
-    def check_archive_dirname(self):
-        ''' Проверка на существование папки-архива, если её нет - создает. '''
-        if not os.path.exists(self.archive_dirname):
-            print('Create folder for shares archive.')
-            os.makedirs(self.archive_dirname)
     
     def check_remove(self):
-        ''' Проверка файла. Если share_hashes и verified_hashes - пустые, то файл архивируется. '''
         to_remove = set()
-        self.check_archive_dirname()
         for filename, (share_hashes, verified_hashes) in self.known_desired.iteritems():
             #print filename, len(share_hashes) + len(verified_hashes)
             if not share_hashes and not verified_hashes:
@@ -1121,7 +1074,5 @@ class ShareStore(object):
         for filename in to_remove:
             self.known.pop(filename)
             self.known_desired.pop(filename)
-            os.rename(filename, os.path.join(self.archive_dirname, 'shares.'+ str(len(os.listdir(self.archive_dirname)))))
-            #os.remove(filename)
-            print "ARCHIVED", filename
-            #print "REMOVED", filename
+            os.remove(filename)
+            print "REMOVED", filename

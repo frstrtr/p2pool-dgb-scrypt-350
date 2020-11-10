@@ -87,7 +87,6 @@ class HeightTracker(object):
         if last != best_last:
             return -1000000000 # XXX hack
         return height - best_height
-    
     def get_height(self, block_hash):
         # callers: highest height can change during yields!
         height, last = self._tracker.get_height_and_last(block_hash)
@@ -102,7 +101,7 @@ def get_height_funcs(bitcoind, factory, best_block_func, net):
         def height_cacher(block_hash):
             if not block_hash in cached_heights:
                 try:
-                    x = yield bitcoind.rpc_getblockheader('%x' % (block_hash,))
+                    x = yield bitcoind.rpc_getblockheader('%064x' % (block_hash,))
                 except jsonrpc.Error_for_code(-5): # Block not found
                     if not p2pool.DEBUG:
                         raise deferral.RetrySilentlyException()

@@ -24,7 +24,7 @@
             function reload(currency_info) {
                 var share_hash = document.location.hash.substr(1);
                 if(share_hash == current_hash) return;
-                d3.json('/web/share/' + share_hash, function(share) {
+                d3.json('../web/share/' + share_hash, function(share) {
                     current_hash = share_hash;
                     var b = d3.select('body');
                     b.selectAll('*').remove();
@@ -39,6 +39,9 @@
                     var parent = b.append('p')
                         parent.append('span').text('Parent: ');
                         parent.append('a').attr('href', '#' + share.parent).text(share.parent.substr(-8));
+                    var far_parent = b.append('p')
+                        far_parent.append('span').text('Far parent: ');
+                        far_parent.append('a').attr('href', '#' + share.far_parent).text(share.far_parent.substr(-8));
                     var children = b.append('p');
                         children.append('span').text('Children: ');
                         children.selectAll().data(share.children).enter().append('span').text(' ').append('a')
@@ -89,7 +92,7 @@
                 });
             }
             
-            d3.json('/web/currency_info', function(currency_info) {
+            d3.json('../web/currency_info', function(currency_info) {
                 reload(currency_info);
                 setInterval(function(){ reload(currency_info) }, 100);
             });

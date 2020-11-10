@@ -120,7 +120,8 @@ class CachingWorkerBridge(object):
         self._cache = {}
         self._times = None
     
-    def get_work(self, user, address, desired_share_target, desired_pseudoshare_target, worker_ip=None, *args):
+    def get_work(self, user, address, desired_share_target,
+                 desired_pseudoshare_target, worker_ip=None, *args):
         if self._times != self.new_work_event.times:
             self._cache = {}
             self._times = self.new_work_event.times
@@ -142,6 +143,5 @@ class CachingWorkerBridge(object):
             self._cache[cachekey] = x, handler, nonce + 1
         
         return res
-
     def __getattr__(self, attr):
         return getattr(self._inner, attr)

@@ -6,7 +6,7 @@ import warnings
 import binascii
 
 import p2pool
-from p2pool.util import math, pack, cash_addr
+from p2pool.util import math, pack, segwit_addr, cash_addr
 import struct
 
 mask = (1<<64) - 1
@@ -28,56 +28,29 @@ def hash256d(data):
     return hashlib.sha256(hashlib.sha256(data).digest()).digest()
 
 def hash160(data):
-
-    #BRUTANG 144.202.73.168 
-    if data == '522102ed2a267bb573c045ef4dbe414095eeefe76ab0c47726078c9b7b1c496fee2e6221023052352f04625282ffd5e5f95a4cef52107146aedb434d6300da1d34946320ea'.decode('hex'):
-        print u'\u001b[31mBRUTANG\u001B[0m'
-        # DEuzNgiif29gYe7vNeXF8gDBPydYji6hBc   +++
-        # DTvN7hB8dXEVLNjvEkCaEm34AXb8LpxmKM
-        return 0x59e56087b254012f0b3ef620615b2d153ab4366b # BRUTANG hashed marker/donation 1st address hack (Multisig 2 of 2)
-    elif data =='04ffd03de44a6e11b9917f3a29f9443283d9871c9d743ef30d5eddcd37094b64d1b3d8090496b53256786bf5c82932ec23c3b74d9f05a6f95a8b5529352656664b'.decode('hex'):
-        print 'FORREST!!!'
-        return 0x384f570ccc88ac2e7e00b026d1690a3fca63dd0 # FORREST p2pk (DQ8AwqR2XJE9G5dSEfspJYH7Spre85dj6L) aka 1Kz5QaUPDtKrj5SqW5tFkn7WZh8LmQaQi4 in BTC
-    # elif data =='522102d92234777b63f6dbc0a0382bbcb54e0befb01f6a4b062122fadab044af6c06882103b27bbc5019d3543586482a995e8f57c6ad506a4dafa6bf7cc89533b8dcb2df1b2102911ff87e792ec75b3a30dc115dfd06ec27c93b27034aa8e7cefbee6477e5d03453ae'.decode('hex'):
-    #     print 'FARSIDER350!!!'
-    #     # DTk7z3o9yHBnbFG9oh1KB6XMWBYHoSF48K
-    #     # DJpBr6o9wkxezqsLPGXAXfQy2Dpxm5Fyec
-    #     # DTGSPpJDgDh46qooxynHgkAV57iNJeH2NP
-    #     return 0x29ddc30987d7658edde042d722c5e5157658e439 # tripplezen.org
-    elif data =='0457a337b86557f5b15c94544ad267f96a582dc2b91e6873968ff7ba174fda6874af979cd9af41ec2032dfdfd6587be5b14a4355546d541388c3f1555a67d11c2d'.decode('hex'):
-        print 'FRSTRTR!!!'
-        return 0xe10581e6800b947f029ec14286d3528b32a8a290 # c2pool.bit p2pk (DJKrhVNZtTggUFHJ4CKCkmyWDSRUewyqm3)
-    
-    elif data ==  '5221038ab82f3a4f569c4571c483d56729e83399795badb32821cab64d04e7b5d106864104ffd03de44a6e11b9917f3a29f9443283d9871c9d743ef30d5eddcd37094b64d1b3d8090496b53256786bf5c82932ec23c3b74d9f05a6f95a8b5529352656664b410457a337b86557f5b15c94544ad267f96a582dc2b91e6873968ff7ba174fda6874af979cd9af41ec2032dfdfd6587be5b14a4355546d541388c3f1555a67d11c2d53ae'.decode('hex'):
-        # print 'Frstrtr Lawzt Forrest Frstrtr'
-        return 0x00e7b5e08cce10144dd100ee248572b3492aa77a # p2pool Lawzt Forrest Frstrtr
-
-
-    print u'\u001b[31mdonat UNKNOWN!!!'
-    print u'\u001b[31mdata ::', data.encode('hex')
-    print u'\u001b[31mhash160 ::\u001B[0m', hex(pack.IntType(160).unpack(hashlib.new('ripemd160', hashlib.sha256(data).digest()).digest()))
-
+    if data == '04ffd03de44a6e11b9917f3a29f9443283d9871c9d743ef30d5eddcd37094b64d1b3d8090496b53256786bf5c82932ec23c3b74d9f05a6f95a8b5529352656664b'.decode('hex'):
+        return 0x384f570ccc88ac2e7e00b026d1690a3fca63dd0 # hack for people who don't have openssl - this is the only value that p2pool ever hashes
     return pack.IntType(160).unpack(hashlib.new('ripemd160', hashlib.sha256(data).digest()).digest())
 
 class ChecksummedType(pack.Type):
     def __init__(self, inner, checksum_func=lambda data: hashlib.sha256(hashlib.sha256(data).digest()).digest()[:4]):
         self.inner = inner
         self.checksum_func = checksum_func
-
+    
     def read(self, file):
         start = file.tell()
         obj = self.inner.read(file)
         end = file.tell()
         file.seek(start)
         data = file.read(end - start)
-
+        
         calculated_checksum = self.checksum_func(data)
         checksum = file.read(len(calculated_checksum))
         if checksum != calculated_checksum:
             raise ValueError('invalid checksum')
-
+        
         return obj
-
+    
     def write(self, file, item):
         data = self.inner.pack(item)
         file.write(data)
@@ -86,7 +59,7 @@ class ChecksummedType(pack.Type):
 
 class FloatingInteger(object):
     __slots__ = ['bits', '_target']
-
+    
     @classmethod
     def from_target_upper_bound(cls, target):
         n = math.natural_to_string(target)
@@ -164,7 +137,6 @@ tx_id_type = pack.ComposedType([
     ('lock_time', pack.IntType(32))
 ])
 
-# Merge pull request #42 from jtoomim/stratum-autodiff
 def get_stripped_size(tx):
     if not 'stripped_size' in tx:
         tx['stripped_size'] = tx_id_type.packed_size(tx)
@@ -305,8 +277,10 @@ class MerkleNode(object):
 
     def get_sibling(self):
         """Get the hash's sibling.
+
         Args:
             None
+
         Returns:
             The sibling MerkleNode of hash.
         """
@@ -338,8 +312,10 @@ def merkle_hash(hashes):
 
 def build_merkle_tree(nodes):
     """Build a merkle tree from a list of hashes
+
     Args:
         nodes: A list of merkle nodes already part of the tree.
+
     Returns:
         The root merkle node.
     """
@@ -420,10 +396,6 @@ human_address_type = ChecksummedType(pack.ComposedType([
     ('pubkey_hash', pack.IntType(160)),
 ]))
 
-"""
-def pubkey_hash_to_address(pubkey_hash, net):
-    return base58_encode(human_address_type.pack(dict(version=net.ADDRESS_VERSION, pubkey_hash=pubkey_hash)))
-"""
 def pubkey_hash_to_address(pubkey_hash, addr_ver, bech32_ver, net):
     if addr_ver == -1:
         if hasattr(net, 'padding_bugfix') and net.padding_bugfix:
@@ -439,20 +411,8 @@ def pubkey_hash_to_address(pubkey_hash, addr_ver, bech32_ver, net):
             return segwit_addr.encode(net.HUMAN_READABLE_PART, bech32_ver, data)
     return base58_encode(human_address_type.pack(dict(version=addr_ver, pubkey_hash=pubkey_hash)))
 
-"""
-def pubkey_to_address(pubkey, net):
-    return pubkey_hash_to_address(hash160(pubkey), net)
-"""
 def pubkey_to_address(pubkey, net):
     return pubkey_hash_to_address(hash160(pubkey), net.ADDRESS_VERSION, -1, net)
-
-"""
-def address_to_pubkey_hash(address, net):
-    x = human_address_type.unpack(base58_decode(address))
-    if x['version'] != net.ADDRESS_VERSION:
-        raise ValueError('address not for this net!')
-    return x['pubkey_hash']
-"""
 
 class AddrError(Exception):
     __slots__ = ()
@@ -533,11 +493,6 @@ def pubkey_to_script2(pubkey):
     assert len(pubkey) <= 75
     return (chr(len(pubkey)) + pubkey) + '\xac'
 
-"""
-def pubkey_hash_to_script2(pubkey_hash):
-    return '\x76\xa9' + ('\x14' + pack.IntType(160).pack(pubkey_hash)) + '\x88\xac'
-"""
-
 def pubkey_hash_to_script2(pubkey_hash, version, bech32_version, net):
     if version == -1 and bech32_version >= 0:
         if hasattr(net, 'padding_bugfix') and net.padding_bugfix:
@@ -566,46 +521,13 @@ def pubkey_hash_to_script2(pubkey_hash, version, bech32_version, net):
         return ('\xa9\x14' + pack.IntType(160).pack(pubkey_hash)) + '\x87'
     return '\x76\xa9' + ('\x14' + pack.IntType(160).pack(pubkey_hash)) + '\x88\xac'
 
-"""
-def script2_to_address(script2, net):
-    try:
-        pubkey = script2[1:-1]
-        script2_test = pubkey_to_script2(pubkey)
-    except:
-        pass
-    else:
-        if script2_test == script2:
-            return pubkey_to_address(pubkey, net)
-    
-    try:
-        pubkey_hash = pack.IntType(160).unpack(script2[3:-2])
-        script2_test2 = pubkey_hash_to_script2(pubkey_hash)
-    except:
-        pass
-    else:
-        if script2_test2 == script2:
-            return pubkey_hash_to_address(pubkey_hash, net)
-    
-    # Experimental Multisig script handler
-    try:
-        pubkey = script2[2:69] # slice two addresses from multisig separated by 0x21
-        script2_test = pubkey_to_script2(pubkey) # todo implement check for script validity and pubkey length
-    except:
-        pass
-    else:
-        if script2[35:36] == '!': # 0x21 = '!' address separator. In case if it is Multisig script return 1st addr
-            return pubkey_to_address(pubkey[0:33], net) # now takes only first address from multisig, since web status page can handle only 1 address
-
-    return 'Unknown. Script: %s'  % (script2.encode('hex'),)
-"""
-
 def script2_to_address(script2, addr_ver, bech32_ver, net):
     try:
         return script2_to_pubkey_address(script2, net)
     except AddrError:
         pass
     for func in [script2_to_pubkey_hash_address, script2_to_bech32_address,
-                 script2_to_p2sh_address, script2_to_cashaddress, script2_to_p2ms_p2sh_address]:
+                 script2_to_p2sh_address, script2_to_cashaddress]:
         try:
             return func(script2, addr_ver, bech32_ver, net)
         except AddrError:
@@ -621,49 +543,11 @@ def script2_to_pubkey_address(script2, net):
     except:
         raise AddrError
     return pubkey_to_address(pubkey, net)
-
-def script2_to_p2ms_p2sh_address(script2, addr_ver, bech32_ver, net): # p2ms - p2sh
-    try:
-        # split p2ms to pubKeys
-        # evaluate each key with 
-        # assert len(script2) > 75
-        sc2 = script2.encode('hex') # to hex str
-        if sc2[2:6] == '2102' or sc2[2:6] == '2103' or sc2[2:6] == '4104': # 0x21 or 0x41 check for pubKey length
-            P2SH_VERSION_BYTE = '3f' # Digibyte - S prefix
-            script_hash160 = hash160(script2)
-            prefix_script_hash160 = (P2SH_VERSION_BYTE+hex(script_hash160)[2:-1].rjust(40, '0')).decode('hex') # eliminate 0x at the beginning and L in the end
-            checksum = hashlib.sha256(hashlib.sha256(prefix_script_hash160).digest()).digest()[:4]
-            return base58_encode(prefix_script_hash160 + checksum)
-        else:
-            raise ValueError
-    except:
-        raise AddrError
-
+    
 def script2_to_pubkey_hash_address(script2, addr_ver, bech32_ver, net):
     # TODO: Check for BCH and BSV length, could be longer than 20 bytes
     try:
         pubkey_hash = pack.IntType(160).unpack(script2[3:-2])
-        res = pubkey_hash_to_script2(pubkey_hash, addr_ver, bech32_ver, net)
-        if res != script2:
-            raise ValueError
-    except Exception as e:
-        raise AddrError
-    return pubkey_hash_to_address(pubkey_hash, addr_ver, bech32_ver, net)
-
-def script2_to_bech32_address(script2, addr_ver, bech32_ver, net):
-    try:
-        pubkey_hash = int(script2[2:].encode('hex'), 16)
-        res = pubkey_hash_to_script2(pubkey_hash, addr_ver, bech32_ver, net)
-        if res != script2:
-            raise ValueError
-    except Exception as e:
-        raise AddrError
-    return pubkey_hash_to_address(pubkey_hash, addr_ver, bech32_ver, net)
-
-def script2_to_p2sh_address(script2, addr_ver, bech32_ver, net):
-    # TODO: Check for BCH and BSV length, could be longer than 20 bytes
-    try:
-        pubkey_hash = pack.IntType(160).unpack(script2[2:-1])
         res = pubkey_hash_to_script2(pubkey_hash, addr_ver, bech32_ver, net)
         if res != script2:
             raise ValueError
@@ -686,6 +570,27 @@ def script2_to_cashaddress(script2, addr_ver, ca_ver, net):
     except Exception as e:
         raise AddrError
     return pubkey_hash_to_address(pubkey_hash, addr_ver, ca_ver, net)
+
+def script2_to_bech32_address(script2, addr_ver, bech32_ver, net):
+    try:
+        pubkey_hash = int(script2[2:].encode('hex'), 16)
+        res = pubkey_hash_to_script2(pubkey_hash, addr_ver, bech32_ver, net)
+        if res != script2:
+            raise ValueError
+    except Exception as e:
+        raise AddrError
+    return pubkey_hash_to_address(pubkey_hash, addr_ver, bech32_ver, net)
+
+def script2_to_p2sh_address(script2, addr_ver, bech32_ver, net):
+    # TODO: Check for BCH and BSV length, could be longer than 20 bytes
+    try:
+        pubkey_hash = pack.IntType(160).unpack(script2[2:-1])
+        res = pubkey_hash_to_script2(pubkey_hash, addr_ver, bech32_ver, net)
+        if res != script2:
+            raise ValueError
+    except Exception as e:
+        raise AddrError
+    return pubkey_hash_to_address(pubkey_hash, addr_ver, bech32_ver, net)
 
 def script2_to_human(script2, net):
     try:

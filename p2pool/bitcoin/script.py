@@ -3,10 +3,8 @@ import cStringIO as StringIO
 
 def reads_nothing(f):
     return None, f
-    
 def protoPUSH(length):
     return lambda f: f.read(length)
-
 def protoPUSHDATA(size_len):
     def _(f):
         length_str = f.read(size_len)
