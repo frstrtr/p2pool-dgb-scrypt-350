@@ -145,55 +145,28 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
         pubkeys = keypool()
         if args.pubkey_hash is None and args.address != 'dynamic':
             address_path = os.path.join(datadir_path, 'cached_payout_address')
-
+            
             if os.path.exists(address_path):
                 with open(address_path, 'rb') as f:
                     address = f.read().strip('\r\n')
                 print '    Loaded cached address: %s...' % (address,)
             else:
                 address = None
-            """
-            if address is not None:
-                # check address validity
-                res = yield deferral.retry('Error validating cached address:', 5)(lambda: bitcoind.rpc_validateaddress(address))()
-                if not res['isvalid']:
-                    print '    Cached address is invalid!'
-                    address = None
-                else:
-                    # check address belongs to local bitcoind
-                    res = yield deferral.retry('Error validating cached address:', 5)(lambda: bitcoind.rpc_getaddressinfo(address))()
-                    if not res['ismine']:
-                        print '    Cached address is not controlled by local bitcoind!'
-                        address = None
-            """
+            
             if address is not None:
                 try:
                     res = yield deferral.retry('Error validating cached address:', 5, 1)(lambda: bitcoind.rpc_getaddressinfo(address))()# rpc_validateaddress(address))()
                     if not res['ismine']:
-                        print '    Cached address is invalid!'
+                        print '    Cached address is not controlled by local bitcoind!'
                         address = None
-                    else:
-                    # checks address controlled by local bitcoind
-                        res = yield deferral.retry('Error validating cached address:', 5)(lambda: bitcoind.rpc_getaddressinfo(address))()
-                        if not res['ismine']:
-                            print '    Cached address is not controlled by local bitcoind!'
-                            address = None
-                        # validateaddress DEPRECATION WARNING: Parts of this command have been deprecated and moved to getaddressinfo.
-                        # Clients must transition to using getaddressinfo to access this information before upgrading to v0.18.
-                        # The following deprecated fields have moved to getaddressinfo and will only be shown here with 
-                        # -deprecatedrpc=validateaddress: ismine, iswatchonly, script, hex, pubkeys, sigsrequired, pubkey, addresses, embedded, iscompressed, account, timestamp, hdkeypath, kdmasterkeyid.
+                    # validateaddress DEPRECATION WARNING: Parts of this command have been deprecated and moved to getaddressinfo.
+                    # Clients must transition to using getaddressinfo to access this information before upgrading to v0.18.
+                    # The following deprecated fields have moved to getaddressinfo and will only be shown here with 
+                    # -deprecatedrpc=validateaddress: ismine, iswatchonly, script, hex, pubkeys, sigsrequired, pubkey, addresses, embedded, iscompressed, account, timestamp, hdkeypath, kdmasterkeyid.
                 except Exception:
                     print '    Cached address is invalid!'
                     address = None
-            """
-            if address is None:
-                print '    Getting payout address from bitcoind...'
-                address = yield deferral.retry('Error getting payout address from bitcoind:', 5)(lambda: bitcoind.rpc_getaccountaddress('p2pool'))()
-        
-            with open(address_path, 'wb') as f:
-                f.write(address)
-            """
-
+                                
             if address is None:
                 print "    Getting payout address from bitcoind labeled \'p2pool\'..."
                 # you should assign label 'p2pool' to Your wallet mining address before
@@ -207,20 +180,16 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
                 with open(address_path, 'wb') as f:
                     f.write(address)
 
-            # my_pubkey_hash = bitcoin_data.address_to_pubkey_hash(address, net.PARENT)
-
             my_address = address
             print(u'\u001b[32m    ...success! Payout address: %s\u001b[0m' % my_address)
-            print
-            # pubkeys.addkey(my_pubkey_hash)
+            print()
+
             pubkeys.addkey({'address': my_address})
         elif args.address != 'dynamic':
-            # my_pubkey_hash = args.pubkey_hash
             my_address = args.address
-            # print '    ...success! Payout address:', bitcoin_data.pubkey_hash_to_address(my_pubkey_hash, net.PARENT)
             print('    ...success! Payout address: %s' % my_address)
-            print
-            # pubkeys.addkey(my_pubkey_hash)
+            print()
+
             pubkeys.addkey({'address': my_address})
         else:
             print '    Entering dynamic address mode.'
@@ -230,14 +199,10 @@ def main(args, net, datadir_path, merged_urls, worker_endpoint):
                 args.numaddresses = 2
             for i in range(args.numaddresses):
                 address = yield deferral.retry('Error getting a dynamic address from bitcoind:', 5)(lambda: bitcoind.rpc_getnewaddress('p2pool'))()
-                # new_pubkey = bitcoin_data.address_to_pubkey_hash(
-                #     address, net.PARENT)
-                # pubkeys.addkey(new_pubkey)
                 pubkeys.addkey({'address': address})
 
             pubkeys.updatestamp(time.time())
 
-            # my_pubkey_hash = pubkeys.keys[0]
             my_address = pubkeys.keys[0]['address']
 
             for i in range(len(pubkeys.keys)):
