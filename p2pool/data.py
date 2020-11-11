@@ -523,13 +523,13 @@ class BaseShare(object):
         except KeyError:
             return zip()
     
-    def check(self, tracker, other_txs=None):
+    def check(self, tracker, known_txs=None, block_abs_height_func=None, feecache=None):
         from p2pool import p2p
         if self.timestamp > int(time.time()) + 600:
             raise ValueError("Share timestamp is %i seconds in the future! Check your system clock." % \
                 self.timestamp - int(time.time()))
         counts = None
-        if self.share_data['previous_share_hash'] is not None:
+        if self.share_data['previous_share_hash'] is not None and block_abs_height_func is not None:
             previous_share = tracker.items[self.share_data['previous_share_hash']]
             if tracker.get_height(self.share_data['previous_share_hash']) >= self.net.CHAIN_LENGTH:
                 counts = get_desired_version_counts(tracker, tracker.get_nth_parent_hash(previous_share.hash, self.net.CHAIN_LENGTH*9//10), self.net.CHAIN_LENGTH//10)
@@ -551,9 +551,6 @@ class BaseShare(object):
         if known_txs is not None and not isinstance(known_txs, dict):
             print "Performing maybe-unnecessary packing and hashing"
             known_txs = dict((bitcoin_data.hash256(bitcoin_data.tx_type.pack(tx)), tx) for tx in known_txs)
-        
-        # 2b or not 2b?
-        # if other_txs is not None and not isinstance(other_txs, dict): other_txs = dict((bitcoin_data.hash256(bitcoin_data.tx_type.pack(tx)), tx) for tx in other_txs)
         
         share_info, gentx, other_tx_hashes2, get_share = self.generate_transaction(tracker, self.share_info['share_data'], self.header['bits'].target, self.share_info['timestamp'], self.share_info['bits'].target, self.contents['ref_merkle_link'], [(h, None) for h in other_tx_hashes], self.net,
             known_txs=None, last_txout_nonce=self.contents['last_txout_nonce'], segwit_data=self.share_info.get('segwit_data', None))
@@ -585,16 +582,17 @@ class BaseShare(object):
             self.naughty = 1 + tracker.items[self.share_data['previous_share_hash']].naughty
             if self.naughty > 6:
                 self.naughty = 0
-        
 
         assert other_tx_hashes2 == other_tx_hashes
         if share_info != self.share_info:
             raise ValueError('share_info invalid')
         if bitcoin_data.get_txid(gentx) != self.gentx_hash:
+            print bitcoin_data.get_txid(gentx), self.gentx_hash
+            print gentx
             raise ValueError('''gentx doesn't match hash_link''')
         if self.VERSION < 34:
-                if bitcoin_data.calculate_merkle_link([None] + other_tx_hashes, 0) != self.merkle_link: # the other hash commitments are checked in the share_info assertion
-                    raise ValueError('merkle_link and other_tx_hashes do not match')
+            if bitcoin_data.calculate_merkle_link([None] + other_tx_hashes, 0) != self.merkle_link: # the other hash commitments are checked in the share_info assertion
+                raise ValueError('merkle_link and other_tx_hashes do not match')
         
         update_min_protocol_version(counts, self)
 
@@ -612,7 +610,6 @@ class BaseShare(object):
         else:
             print("Received naughty=%i share: diff=%.2e hash=%064x miner=%s" %
                     (self.naughty, _diff, self.hash, self.address))
-
         return gentx # only used by as_block
     
     def get_other_tx_hashes(self, tracker):

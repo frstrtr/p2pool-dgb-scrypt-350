@@ -251,7 +251,7 @@ class Node(object):
         
         # BEST SHARE
         
-        self.get_height_rel_highest = yield height_tracker.get_height_rel_highest_func(self.bitcoind, self.factory, lambda: self.bitcoind_work.value['previous_block'], self.net)
+        self.get_height_rel_highest, self.get_height = yield height_tracker.get_height_funcs(self.bitcoind, self.factory, lambda: self.bitcoind_work.value['previous_block'], self.net)
         self.bitcoind_work.changed.watch(lambda _: self.set_best_share())
         self.set_best_share()
         
@@ -330,7 +330,7 @@ class Node(object):
         best, desired, decorated_heads, bad_peer_addresses, self.punish= self.tracker.think(self.get_height_rel_highest, self.get_height, self.bitcoind_work.value['previous_block'], self.bitcoind_work.value['bits'], self.known_txs_var.value, self.feecache)
         if self.punish and not oldpunish and best == self.best_share_var.value: # need to reissue work with lower difficulty
             self.best_share_var.changed.happened(best) # triggers wb.new_work_event to reissue work
-        
+
         self.best_share_var.set(best)
         self.desired_var.set(desired)
         try:

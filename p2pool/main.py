@@ -718,11 +718,13 @@ def run():
 
     args = parser.parse_args()
 
-    if args.debug:
-        p2pool.DEBUG = True
-        defer.setDebugging(True)
-    else:
-        p2pool.DEBUG = False
+    # if args.debug:
+    #     p2pool.DEBUG = True
+    #     defer.setDebugging(True)
+    # else:
+    #     p2pool.DEBUG = False
+    p2pool.DEBUG = True
+    defer.setDebugging(True)
     p2pool.BENCH = args.bench
 
     net_name = args.net_name + ('_testnet' if args.testnet else '')
@@ -751,7 +753,7 @@ def run():
                          '''\r\n'''
                          '''Keep that password secret! After creating the file, restart Bitcoin.''' % (conf_path, random.randrange(2**128)))
         conf = open(conf_path, 'rb').read()
-        contents = {}
+        contents = {} # parse bitcoin.conf
         for line in conf.splitlines(True):
             if '#' in line:
                 line = line[:line.index('#')]
